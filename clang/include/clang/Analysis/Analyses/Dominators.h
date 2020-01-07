@@ -168,7 +168,7 @@ public:
 
   /// Releases the memory held by the dominator tree.
   virtual void releaseMemory() {
-    DT.releaseMemory();
+    DT.reset();
   }
 
   /// Converts the dominator tree to human readable form.

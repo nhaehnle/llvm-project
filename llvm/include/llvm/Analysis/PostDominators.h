@@ -89,7 +89,7 @@ struct PostDominatorTreeWrapperPass : public FunctionPass {
   }
 
   void releaseMemory() override {
-    DT.releaseMemory();
+    DT.reset();
   }
 
   void print(raw_ostream &OS, const Module*) const override;
