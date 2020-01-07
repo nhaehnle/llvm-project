@@ -849,7 +849,7 @@ bool llvm::UnrollRuntimeLoopRemainder(Loop *L, unsigned Count,
     // dominator of the exit blocks.
     for (auto *BB : L->blocks()) {
       auto *DomNodeBB = DT->getNode(BB);
-      for (auto *DomChild : DomNodeBB->getChildren()) {
+      for (auto *DomChild : DomNodeBB->children()) {
         auto *DomChildBB = DomChild->getBlock();
         if (!L->contains(LI->getLoopFor(DomChildBB)))
           ChildrenToUpdate.push_back(DomChildBB);
