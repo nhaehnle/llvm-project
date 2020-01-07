@@ -160,7 +160,7 @@ static BasicBlock *unifyReturnBlockSet(Function &F,
 
 bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
   auto &PDT = getAnalysis<PostDominatorTreeWrapperPass>().getPostDomTree();
-  if (PDT.getRoots().size() <= 1)
+  if (PDT.root_size() <= 1)
     return false;
 
   LegacyDivergenceAnalysis &DA = getAnalysis<LegacyDivergenceAnalysis>();
@@ -173,7 +173,7 @@ bool AMDGPUUnifyDivergentExitNodes::runOnFunction(Function &F) {
   // Dummy return block for infinite loop.
   BasicBlock *DummyReturnBB = nullptr;
 
-  for (BasicBlock *BB : PDT.getRoots()) {
+  for (BasicBlock *BB : PDT.roots()) {
     if (isa<ReturnInst>(BB->getTerminator())) {
       if (!isUniformlyReached(DA, *BB))
         ReturningBlocks.push_back(BB);
