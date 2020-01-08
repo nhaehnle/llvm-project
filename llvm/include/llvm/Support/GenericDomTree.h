@@ -282,6 +282,10 @@ public:
   const void *findNearestCommonDominatorBlock(
       const void *A, const void *B) const;
 
+  const GenericDomTreeNodeBase *findSiblingOfUncle(
+      const GenericDomTreeNodeBase *A,
+      const GenericDomTreeNodeBase *Uncle) const;
+
   void updateDFSNumbers() const;
 
 private:
@@ -464,6 +468,13 @@ class DominatorTreeBase : public GenericDominatorTreeBase {
   NodeT *findNearestCommonDominator(NodeT *A, NodeT *B) const {
     return static_cast<NodeT *>(const_cast<void *>(
         GenericDominatorTreeBase::findNearestCommonDominatorBlock(A, B)));
+  }
+
+  const DomTreeNodeBase<NodeT> *findSiblingOfUncle(
+      const DomTreeNodeBase<NodeT> *A,
+      const DomTreeNodeBase<NodeT> *Uncle) const {
+    return static_cast<const DomTreeNodeBase<NodeT> *>(
+        GenericDominatorTreeBase::findSiblingOfUncle(A, Uncle));
   }
 
   //===--------------------------------------------------------------------===//
