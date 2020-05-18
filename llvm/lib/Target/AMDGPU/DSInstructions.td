@@ -447,53 +447,55 @@ defm DS_CMPST_F64     : DS_1A2D_NORET_mc<"ds_cmpst_f64", VReg_64>;
 defm DS_MIN_F64       : DS_1A1D_NORET_mc<"ds_min_f64", VReg_64>;
 defm DS_MAX_F64       : DS_1A1D_NORET_mc<"ds_max_f64", VReg_64>;
 
-defm DS_ADD_RTN_U32   : DS_1A1D_RET_mc<"ds_add_rtn_u32", VGPR_32, "ds_add_u32">;
+let isSourceOfDivergence = 1 in {
+  defm DS_ADD_RTN_U32   : DS_1A1D_RET_mc<"ds_add_rtn_u32", VGPR_32, "ds_add_u32">;
 
-let SubtargetPredicate = HasLDSFPAtomics in {
-defm DS_ADD_RTN_F32   : DS_1A1D_RET_mc<"ds_add_rtn_f32", VGPR_32, "ds_add_f32">;
+  let SubtargetPredicate = HasLDSFPAtomics in {
+    defm DS_ADD_RTN_F32   : DS_1A1D_RET_mc<"ds_add_rtn_f32", VGPR_32, "ds_add_f32">;
+  }
+  defm DS_SUB_RTN_U32   : DS_1A1D_RET_mc<"ds_sub_rtn_u32", VGPR_32, "ds_sub_u32">;
+  defm DS_RSUB_RTN_U32  : DS_1A1D_RET_mc<"ds_rsub_rtn_u32", VGPR_32, "ds_rsub_u32">;
+  defm DS_INC_RTN_U32   : DS_1A1D_RET_mc<"ds_inc_rtn_u32", VGPR_32, "ds_inc_u32">;
+  defm DS_DEC_RTN_U32   : DS_1A1D_RET_mc<"ds_dec_rtn_u32", VGPR_32, "ds_dec_u32">;
+  defm DS_MIN_RTN_I32   : DS_1A1D_RET_mc<"ds_min_rtn_i32", VGPR_32, "ds_min_i32">;
+  defm DS_MAX_RTN_I32   : DS_1A1D_RET_mc<"ds_max_rtn_i32", VGPR_32, "ds_max_i32">;
+  defm DS_MIN_RTN_U32   : DS_1A1D_RET_mc<"ds_min_rtn_u32", VGPR_32, "ds_min_u32">;
+  defm DS_MAX_RTN_U32   : DS_1A1D_RET_mc<"ds_max_rtn_u32", VGPR_32, "ds_max_u32">;
+  defm DS_AND_RTN_B32   : DS_1A1D_RET_mc<"ds_and_rtn_b32", VGPR_32, "ds_and_b32">;
+  defm DS_OR_RTN_B32    : DS_1A1D_RET_mc<"ds_or_rtn_b32", VGPR_32, "ds_or_b32">;
+  defm DS_XOR_RTN_B32   : DS_1A1D_RET_mc<"ds_xor_rtn_b32", VGPR_32, "ds_xor_b32">;
+  defm DS_MSKOR_RTN_B32 : DS_1A2D_RET_mc<"ds_mskor_rtn_b32", VGPR_32, "ds_mskor_b32">;
+  defm DS_CMPST_RTN_B32 : DS_1A2D_RET_mc<"ds_cmpst_rtn_b32", VGPR_32, "ds_cmpst_b32">;
+  defm DS_CMPST_RTN_F32 : DS_1A2D_RET_mc<"ds_cmpst_rtn_f32", VGPR_32, "ds_cmpst_f32">;
+  defm DS_MIN_RTN_F32   : DS_1A1D_RET_mc<"ds_min_rtn_f32", VGPR_32, "ds_min_f32">;
+  defm DS_MAX_RTN_F32   : DS_1A1D_RET_mc<"ds_max_rtn_f32", VGPR_32, "ds_max_f32">;
+
+  defm DS_WRXCHG_RTN_B32 : DS_1A1D_RET_mc<"ds_wrxchg_rtn_b32">;
+  defm DS_WRXCHG2_RTN_B32 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2_rtn_b32", VReg_64, VGPR_32>;
+  defm DS_WRXCHG2ST64_RTN_B32 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2st64_rtn_b32", VReg_64, VGPR_32>;
+
+  defm DS_ADD_RTN_U64  : DS_1A1D_RET_mc<"ds_add_rtn_u64", VReg_64, "ds_add_u64">;
+  defm DS_SUB_RTN_U64  : DS_1A1D_RET_mc<"ds_sub_rtn_u64", VReg_64, "ds_sub_u64">;
+  defm DS_RSUB_RTN_U64  : DS_1A1D_RET_mc<"ds_rsub_rtn_u64", VReg_64, "ds_rsub_u64">;
+  defm DS_INC_RTN_U64   : DS_1A1D_RET_mc<"ds_inc_rtn_u64", VReg_64, "ds_inc_u64">;
+  defm DS_DEC_RTN_U64   : DS_1A1D_RET_mc<"ds_dec_rtn_u64", VReg_64, "ds_dec_u64">;
+  defm DS_MIN_RTN_I64    : DS_1A1D_RET_mc<"ds_min_rtn_i64", VReg_64, "ds_min_i64">;
+  defm DS_MAX_RTN_I64    : DS_1A1D_RET_mc<"ds_max_rtn_i64", VReg_64, "ds_max_i64">;
+  defm DS_MIN_RTN_U64   : DS_1A1D_RET_mc<"ds_min_rtn_u64", VReg_64, "ds_min_u64">;
+  defm DS_MAX_RTN_U64   : DS_1A1D_RET_mc<"ds_max_rtn_u64", VReg_64, "ds_max_u64">;
+  defm DS_AND_RTN_B64    : DS_1A1D_RET_mc<"ds_and_rtn_b64", VReg_64, "ds_and_b64">;
+  defm DS_OR_RTN_B64     : DS_1A1D_RET_mc<"ds_or_rtn_b64", VReg_64, "ds_or_b64">;
+  defm DS_XOR_RTN_B64    : DS_1A1D_RET_mc<"ds_xor_rtn_b64", VReg_64, "ds_xor_b64">;
+  defm DS_MSKOR_RTN_B64  : DS_1A2D_RET_mc<"ds_mskor_rtn_b64", VReg_64, "ds_mskor_b64">;
+  defm DS_CMPST_RTN_B64  : DS_1A2D_RET_mc<"ds_cmpst_rtn_b64", VReg_64, "ds_cmpst_b64">;
+  defm DS_CMPST_RTN_F64  : DS_1A2D_RET_mc<"ds_cmpst_rtn_f64", VReg_64, "ds_cmpst_f64">;
+  defm DS_MIN_RTN_F64    : DS_1A1D_RET_mc<"ds_min_rtn_f64", VReg_64, "ds_min_f64">;
+  defm DS_MAX_RTN_F64    : DS_1A1D_RET_mc<"ds_max_rtn_f64", VReg_64, "ds_max_f64">;
+
+  defm DS_WRXCHG_RTN_B64 : DS_1A1D_RET_mc<"ds_wrxchg_rtn_b64", VReg_64>;
+  defm DS_WRXCHG2_RTN_B64 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2_rtn_b64", VReg_128, VReg_64>;
+  defm DS_WRXCHG2ST64_RTN_B64 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2st64_rtn_b64", VReg_128, VReg_64>;
 }
-defm DS_SUB_RTN_U32   : DS_1A1D_RET_mc<"ds_sub_rtn_u32", VGPR_32, "ds_sub_u32">;
-defm DS_RSUB_RTN_U32  : DS_1A1D_RET_mc<"ds_rsub_rtn_u32", VGPR_32, "ds_rsub_u32">;
-defm DS_INC_RTN_U32   : DS_1A1D_RET_mc<"ds_inc_rtn_u32", VGPR_32, "ds_inc_u32">;
-defm DS_DEC_RTN_U32   : DS_1A1D_RET_mc<"ds_dec_rtn_u32", VGPR_32, "ds_dec_u32">;
-defm DS_MIN_RTN_I32   : DS_1A1D_RET_mc<"ds_min_rtn_i32", VGPR_32, "ds_min_i32">;
-defm DS_MAX_RTN_I32   : DS_1A1D_RET_mc<"ds_max_rtn_i32", VGPR_32, "ds_max_i32">;
-defm DS_MIN_RTN_U32   : DS_1A1D_RET_mc<"ds_min_rtn_u32", VGPR_32, "ds_min_u32">;
-defm DS_MAX_RTN_U32   : DS_1A1D_RET_mc<"ds_max_rtn_u32", VGPR_32, "ds_max_u32">;
-defm DS_AND_RTN_B32   : DS_1A1D_RET_mc<"ds_and_rtn_b32", VGPR_32, "ds_and_b32">;
-defm DS_OR_RTN_B32    : DS_1A1D_RET_mc<"ds_or_rtn_b32", VGPR_32, "ds_or_b32">;
-defm DS_XOR_RTN_B32   : DS_1A1D_RET_mc<"ds_xor_rtn_b32", VGPR_32, "ds_xor_b32">;
-defm DS_MSKOR_RTN_B32 : DS_1A2D_RET_mc<"ds_mskor_rtn_b32", VGPR_32, "ds_mskor_b32">;
-defm DS_CMPST_RTN_B32 : DS_1A2D_RET_mc<"ds_cmpst_rtn_b32", VGPR_32, "ds_cmpst_b32">;
-defm DS_CMPST_RTN_F32 : DS_1A2D_RET_mc<"ds_cmpst_rtn_f32", VGPR_32, "ds_cmpst_f32">;
-defm DS_MIN_RTN_F32   : DS_1A1D_RET_mc<"ds_min_rtn_f32", VGPR_32, "ds_min_f32">;
-defm DS_MAX_RTN_F32   : DS_1A1D_RET_mc<"ds_max_rtn_f32", VGPR_32, "ds_max_f32">;
-
-defm DS_WRXCHG_RTN_B32 : DS_1A1D_RET_mc<"ds_wrxchg_rtn_b32">;
-defm DS_WRXCHG2_RTN_B32 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2_rtn_b32", VReg_64, VGPR_32>;
-defm DS_WRXCHG2ST64_RTN_B32 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2st64_rtn_b32", VReg_64, VGPR_32>;
-
-defm DS_ADD_RTN_U64  : DS_1A1D_RET_mc<"ds_add_rtn_u64", VReg_64, "ds_add_u64">;
-defm DS_SUB_RTN_U64  : DS_1A1D_RET_mc<"ds_sub_rtn_u64", VReg_64, "ds_sub_u64">;
-defm DS_RSUB_RTN_U64  : DS_1A1D_RET_mc<"ds_rsub_rtn_u64", VReg_64, "ds_rsub_u64">;
-defm DS_INC_RTN_U64   : DS_1A1D_RET_mc<"ds_inc_rtn_u64", VReg_64, "ds_inc_u64">;
-defm DS_DEC_RTN_U64   : DS_1A1D_RET_mc<"ds_dec_rtn_u64", VReg_64, "ds_dec_u64">;
-defm DS_MIN_RTN_I64    : DS_1A1D_RET_mc<"ds_min_rtn_i64", VReg_64, "ds_min_i64">;
-defm DS_MAX_RTN_I64    : DS_1A1D_RET_mc<"ds_max_rtn_i64", VReg_64, "ds_max_i64">;
-defm DS_MIN_RTN_U64   : DS_1A1D_RET_mc<"ds_min_rtn_u64", VReg_64, "ds_min_u64">;
-defm DS_MAX_RTN_U64   : DS_1A1D_RET_mc<"ds_max_rtn_u64", VReg_64, "ds_max_u64">;
-defm DS_AND_RTN_B64    : DS_1A1D_RET_mc<"ds_and_rtn_b64", VReg_64, "ds_and_b64">;
-defm DS_OR_RTN_B64     : DS_1A1D_RET_mc<"ds_or_rtn_b64", VReg_64, "ds_or_b64">;
-defm DS_XOR_RTN_B64    : DS_1A1D_RET_mc<"ds_xor_rtn_b64", VReg_64, "ds_xor_b64">;
-defm DS_MSKOR_RTN_B64  : DS_1A2D_RET_mc<"ds_mskor_rtn_b64", VReg_64, "ds_mskor_b64">;
-defm DS_CMPST_RTN_B64  : DS_1A2D_RET_mc<"ds_cmpst_rtn_b64", VReg_64, "ds_cmpst_b64">;
-defm DS_CMPST_RTN_F64  : DS_1A2D_RET_mc<"ds_cmpst_rtn_f64", VReg_64, "ds_cmpst_f64">;
-defm DS_MIN_RTN_F64    : DS_1A1D_RET_mc<"ds_min_rtn_f64", VReg_64, "ds_min_f64">;
-defm DS_MAX_RTN_F64    : DS_1A1D_RET_mc<"ds_max_rtn_f64", VReg_64, "ds_max_f64">;
-
-defm DS_WRXCHG_RTN_B64 : DS_1A1D_RET_mc<"ds_wrxchg_rtn_b64", VReg_64>;
-defm DS_WRXCHG2_RTN_B64 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2_rtn_b64", VReg_128, VReg_64>;
-defm DS_WRXCHG2ST64_RTN_B64 : DS_1A2D_Off8_RET_mc<"ds_wrxchg2st64_rtn_b64", VReg_128, VReg_64>;
 
 let isConvergent = 1, usesCustomInserter = 1 in {
 def DS_GWS_INIT       : DS_GWS_1D<"ds_gws_init"> {
@@ -569,7 +571,8 @@ def DS_READ_U16_D16_HI : DS_1A_RET_Tied<"ds_read_u16_d16_hi">;
 }
 } // End has_m0_read = 0
 
-let SubtargetPredicate = HasDSAddTid in {
+let SubtargetPredicate = HasDSAddTid,
+    isSourceOfDivergence = 1 in {
 def DS_READ_ADDTID_B32 : DS_0A_RET<"ds_read_addtid_b32">;
 }
 
@@ -577,7 +580,12 @@ def DS_READ_ADDTID_B32 : DS_0A_RET<"ds_read_addtid_b32">;
 
 def DS_CONSUME       : DS_0A_RET<"ds_consume">;
 def DS_APPEND        : DS_0A_RET<"ds_append">;
-def DS_ORDERED_COUNT : DS_1A_RET_GDS<"ds_ordered_count">;
+
+// TODO: ds_ordered_count is really only a source of divergence when in gfx10
+//       multi-dword mode.
+let isSourceOfDivergence = 1 in {
+  def DS_ORDERED_COUNT : DS_1A_RET_GDS<"ds_ordered_count">;
+}
 
 //===----------------------------------------------------------------------===//
 // Instruction definitions for CI and newer.
@@ -585,8 +593,10 @@ def DS_ORDERED_COUNT : DS_1A_RET_GDS<"ds_ordered_count">;
 
 let SubtargetPredicate = isGFX7Plus in {
 
-defm DS_WRAP_RTN_B32 : DS_1A2D_RET_mc<"ds_wrap_rtn_b32", VGPR_32>;
-defm DS_CONDXCHG32_RTN_B64 : DS_1A1D_RET_mc<"ds_condxchg32_rtn_b64", VReg_64>;
+let isSourceOfDivergence = 1 in {
+  defm DS_WRAP_RTN_B32 : DS_1A2D_RET_mc<"ds_wrap_rtn_b32", VGPR_32>;
+  defm DS_CONDXCHG32_RTN_B64 : DS_1A1D_RET_mc<"ds_condxchg32_rtn_b64", VReg_64>;
+}
 
 let isConvergent = 1, usesCustomInserter = 1 in {
 def DS_GWS_SEMA_RELEASE_ALL : DS_GWS_0D<"ds_gws_sema_release_all">;

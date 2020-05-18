@@ -476,6 +476,7 @@ multiclass MIMG_Atomic_Addr_Helper_m <mimg op, string asm,
                                       RegisterClass data_rc,
                                       bit enableDasm = 0> {
   let hasSideEffects = 1, // FIXME: remove this
+      isSourceOfDivergence = 1,
       mayLoad = 1, mayStore = 1, hasPostISelHook = 0, DisableWQM = 1,
       ssamp = 0 in {
     let VAddrDwords = 1 in {
