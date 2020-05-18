@@ -90,6 +90,8 @@ static cl::opt<bool> UseGPUDA("use-gpu-divergence-analysis", cl::init(false),
                               cl::desc("turn the LegacyDivergenceAnalysis into "
                                        "a wrapper for GPUDivergenceAnalysis"));
 
+IDivergenceAnalysis::~IDivergenceAnalysis() {}
+
 namespace {
 
 class DivergencePropagator {

@@ -28,7 +28,17 @@ class TargetTransformInfo;
 class Use;
 class Value;
 
-class LegacyDivergenceAnalysis : public FunctionPass {
+/// Abstract interface to divergence analysis providers.
+class IDivergenceAnalysis {
+public:
+  virtual ~IDivergenceAnalysis();
+
+  /// Returns true if V is divergent at its definition.
+  virtual bool isDivergent(const Value *V) const = 0;
+};
+
+class LegacyDivergenceAnalysis
+    : public FunctionPass, public IDivergenceAnalysis {
 public:
   static char ID;
 
@@ -42,7 +52,7 @@ public:
   void print(raw_ostream &OS, const Module *) const override;
 
   // Returns true if V is divergent at its definition.
-  bool isDivergent(const Value *V) const;
+  bool isDivergent(const Value *V) const override final;
 
   // Returns true if U is divergent. Uses of a uniform value can be divergent.
   bool isDivergentUse(const Use *U) const;
