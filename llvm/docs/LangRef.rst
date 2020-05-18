@@ -1476,24 +1476,23 @@ example:
     function call are also considered to be cold; and, thus, given low
     weight.
 ``convergent``
-    In some parallel execution models, there exist operations that cannot be
-    made control-dependent on any additional values.  We call such operations
-    ``convergent``, and mark them with this attribute.
+    Some parallel execution environments execute threads in groups that allow
+    efficient communication within the group, among a subset of threads that
+    is implicitly defined by control flow. We call such operations
+    ``convergent`` and mark them with this attribute.
 
-    The ``convergent`` attribute may appear on functions or call/invoke
-    instructions.  When it appears on a function, it indicates that calls to
-    this function should not be made control-dependent on additional values.
-    For example, the intrinsic ``llvm.nvvm.barrier0`` is ``convergent``, so
-    calls to this intrinsic cannot be made control-dependent on additional
-    values.
+    The ``convergent`` attribute may appear on call/invoke instructions to
+    indicate that the instruction is a convergent operation, or on functions
+    to indicate that calls to this function are convergent operations.
 
-    When it appears on a call/invoke, the ``convergent`` attribute indicates
-    that we should treat the call as though we're calling a convergent
-    function.  This is particularly useful on indirect calls; without this we
-    may treat such calls as though the target is non-convergent.
+    The presence of this attribute indicates that certain program transforms
+    involving control flow are forbidden. For a detailed description, see the
+    :doc:`ConvergentOperations` document.
 
     The optimizer may remove the ``convergent`` attribute on functions when it
-    can prove that the function does not execute any convergent operations.
+    can prove that the function does not execute
+    ``llvm.experimental.convergent.entry`` or uncontrolled convergent
+    operations (see :ref:`dynamic_instances_and_convergence_tokens`).
     Similarly, the optimizer may remove ``convergent`` on calls/invokes when it
     can prove that the call/invoke cannot call a convergent function.
 ``inaccessiblememonly``
@@ -1608,10 +1607,14 @@ example:
     (synchronize) with another thread through memory or other well-defined means.
     Synchronization is considered possible in the presence of `atomic` accesses
     that enforce an order, thus not "unordered" and "monotonic", `volatile` accesses,
-    as well as `convergent` function calls. Note that through `convergent` function calls
-    non-memory communication, e.g., cross-lane operations, are possible and are also
-    considered synchronization. However `convergent` does not contradict `nosync`.
-    If an annotated function does ever synchronize with another thread,
+    as well as `convergent` function calls.
+
+    Note that `convergent` operations can involve communication that is
+    considered to be not through memory and does not necessarily imply an
+    ordering between threads for the purposes of the memory model. Therefore,
+    an operation can be both `convergent` and `nosync`.
+
+    If a `nosync` function does ever synchronize with another thread,
     the behavior is undefined.
 ``nounwind``
     This function attribute indicates that the function never raises an
@@ -2321,6 +2324,13 @@ object which potentially needs to be updated by the garbage collector.
 When lowered, any relocated value will be recorded in the corresponding
 :ref:`stackmap entry <statepoint-stackmap-format>`.  See the intrinsic description
 for further details.
+
+Convergence Control Operand Bundles
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A "convergencectrl" operand bundle is only valid on a ``convergent`` operation.
+When present, the operand bundle must contain exactly one value of token type.
+See the :doc:`ConvergentOperations` document for details.
 
 .. _moduleasm:
 
@@ -16210,6 +16220,13 @@ Examples:
 
       %a = load i16, i16* @x, align 2
       %res = call float @llvm.convert.from.fp16(i16 %a)
+
+Convergence Intrinsics
+----------------------
+
+The LLVM convergence intrinsics for controlling the semantics of ``convergent``
+operations, which all start with the ``llvm.experimental.convergence.``
+prefix, are described in the :doc:`ConvergentOperations` document.
 
 .. _dbg_intrinsics:
 
