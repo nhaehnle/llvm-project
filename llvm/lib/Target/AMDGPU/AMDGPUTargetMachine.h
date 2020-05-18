@@ -62,6 +62,8 @@ public:
             AddrSpace == AMDGPUAS::PRIVATE_ADDRESS ||
             AddrSpace == AMDGPUAS::REGION_ADDRESS) ? -1 : 0;
   }
+
+  static bool getUseNewControlFlow();
 };
 
 //===----------------------------------------------------------------------===//

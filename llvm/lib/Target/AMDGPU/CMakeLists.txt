@@ -136,6 +136,7 @@ add_llvm_target(AMDGPUCodeGen
   GCNRegBankReassign.cpp
   GCNNSAReassign.cpp
   GCNDPPCombine.cpp
+  GCNWaveTransform.cpp
   SIModeRegister.cpp
   )
 
