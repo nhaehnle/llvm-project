@@ -305,6 +305,10 @@ public:
   CfgBlockRef findNearestCommonDominatorBlock(CfgBlockRef A,
                                               CfgBlockRef B) const;
 
+  const GenericDomTreeNodeBase *
+  findSiblingOfUncle(const GenericDomTreeNodeBase *A,
+                     const GenericDomTreeNodeBase *Uncle) const;
+
   void updateDFSNumbers() const;
 
 private:
@@ -493,6 +497,12 @@ public:
         GenericDominatorTreeBase::findNearestCommonDominator(getNode(A),
                                                              getNode(B)));
     return dom->getBlock();
+  }
+
+  const TreeNode *findSiblingOfUncle(const TreeNode *A,
+                                     const TreeNode *Uncle) const {
+    return static_cast<const TreeNode *>(
+        GenericDominatorTreeBase::findSiblingOfUncle(A, Uncle));
   }
 
   //===--------------------------------------------------------------------===//
