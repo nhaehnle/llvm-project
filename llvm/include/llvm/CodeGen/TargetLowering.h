@@ -72,7 +72,7 @@ class GlobalValue;
 class GISelKnownBits;
 class IntrinsicInst;
 struct KnownBits;
-class LegacyDivergenceAnalysis;
+class IDivergenceAnalysis;
 class LLVMContext;
 class MachineBasicBlock;
 class MachineFunction;
@@ -3134,7 +3134,7 @@ public:
 
   virtual bool isSDNodeSourceOfDivergence(const SDNode *N,
                                           FunctionLoweringInfo *FLI,
-                                          LegacyDivergenceAnalysis *DA) const {
+                                          IDivergenceAnalysis *DA) const {
     return false;
   }
 

@@ -11733,7 +11733,7 @@ static bool isCopyFromRegOfInlineAsm(const SDNode *N) {
 
 bool SITargetLowering::isSDNodeSourceOfDivergence(
     const SDNode *N, FunctionLoweringInfo *FLI,
-    LegacyDivergenceAnalysis *KDA) const {
+    IDivergenceAnalysis *KDA) const {
   switch (N->getOpcode()) {
   case ISD::CopyFromReg: {
     const RegisterSDNode *R = cast<RegisterSDNode>(N->getOperand(1));

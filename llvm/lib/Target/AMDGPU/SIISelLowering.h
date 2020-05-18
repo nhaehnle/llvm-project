@@ -430,7 +430,7 @@ public:
                                         const MachineRegisterInfo &MRI,
                                         unsigned Depth = 0) const override;
   bool isSDNodeSourceOfDivergence(const SDNode *N,
-    FunctionLoweringInfo *FLI, LegacyDivergenceAnalysis *DA) const override;
+    FunctionLoweringInfo *FLI, IDivergenceAnalysis *DA) const override;
 
   bool isCanonicalized(SelectionDAG &DAG, SDValue Op,
                        unsigned MaxDepth = 5) const;

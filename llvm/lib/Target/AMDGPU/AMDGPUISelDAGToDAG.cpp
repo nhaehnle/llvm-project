@@ -407,6 +407,7 @@ bool AMDGPUDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
 #endif
   Subtarget = &MF.getSubtarget<GCNSubtarget>();
   Mode = AMDGPU::SIModeRegisterDefaults(MF.getFunction());
+  CurDAG->setDivergenceAnalysis(&getAnalysis<LegacyDivergenceAnalysis>());
   return SelectionDAGISel::runOnMachineFunction(MF);
 }
 

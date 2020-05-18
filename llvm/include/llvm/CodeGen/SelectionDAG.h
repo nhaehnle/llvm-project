@@ -65,8 +65,8 @@ class DataLayout;
 struct fltSemantics;
 class FunctionLoweringInfo;
 class GlobalValue;
+class IDivergenceAnalysis;
 struct KnownBits;
-class LegacyDivergenceAnalysis;
 class LLVMContext;
 class MachineBasicBlock;
 class MachineConstantPoolValue;
@@ -230,7 +230,7 @@ class SelectionDAG {
   LLVMContext *Context;
   CodeGenOpt::Level OptLevel;
 
-  LegacyDivergenceAnalysis * DA = nullptr;
+  IDivergenceAnalysis * DA = nullptr;
   FunctionLoweringInfo * FLI = nullptr;
 
   /// The function-level optimization remark emitter.  Used to emit remarks
@@ -430,12 +430,13 @@ public:
   /// Prepare this SelectionDAG to process code in the given MachineFunction.
   void init(MachineFunction &NewMF, OptimizationRemarkEmitter &NewORE,
             Pass *PassPtr, const TargetLibraryInfo *LibraryInfo,
-            LegacyDivergenceAnalysis * Divergence,
             ProfileSummaryInfo *PSIin, BlockFrequencyInfo *BFIin);
 
   void setFunctionLoweringInfo(FunctionLoweringInfo * FuncInfo) {
     FLI = FuncInfo;
   }
+
+  void setDivergenceAnalysis(IDivergenceAnalysis *da) { DA = da; }
 
   /// Clear state and free memory necessary to make this
   /// SelectionDAG ready to process a new block.
@@ -450,7 +451,7 @@ public:
   const TargetLowering &getTargetLoweringInfo() const { return *TLI; }
   const TargetLibraryInfo &getLibInfo() const { return *LibInfo; }
   const SelectionDAGTargetInfo &getSelectionDAGInfo() const { return *TSI; }
-  const LegacyDivergenceAnalysis *getDivergenceAnalysis() const { return DA; }
+  const IDivergenceAnalysis *getDivergenceAnalysis() const { return DA; }
   LLVMContext *getContext() const { return Context; }
   OptimizationRemarkEmitter &getORE() const { return *ORE; }
   ProfileSummaryInfo *getPSI() const { return PSI; }
