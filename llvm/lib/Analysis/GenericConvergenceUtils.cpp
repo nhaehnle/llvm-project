@@ -474,3 +474,75 @@ void HeartAdjustedPostOrderBase::compute(
   assert(cycleStack.size() == 1);
   m_order = std::move(cycleStack[0].order);
 }
+
+/// \brief Clear all data held by the object.
+void GenericUniformInfoBase::clear() {
+  m_divergentValues.clear();
+}
+
+/// \brief Check whether the given value is divergent at its definition.
+bool GenericUniformInfoBase::isDivergentAtDef(CfgValueRef value) const {
+  return m_divergentValues.count(value) != 0;
+}
+
+/// \brief Check whether the given cycle has a divergent exit.
+bool GenericUniformInfoBase::hasDivergentExit(const GenericCycleBase *cycle) const {
+  return m_divergentCycleExits.count(cycle) != 0;
+}
+
+/// \brief Check whether the given block has a divergent terminator.
+bool GenericUniformInfoBase::hasDivergentTerminator(CfgBlockRef block) const {
+  return m_divergentBlocks.count(block) != 0;
+}
+
+/// \brief Generic helper function for printing.
+void GenericUniformInfoBase::print(const CfgPrinter &printer,
+                                   raw_ostream &out) const {
+  bool haveDivergentArgs = false;
+
+  if (m_divergentValues.empty()) {
+    assert(m_divergentBlocks.empty());
+    assert(m_divergentCycleExits.empty());
+    out << "ALL VALUES UNIFORM\n";
+    return;
+  }
+
+  for (const auto &entry : m_divergentValues) {
+    CfgBlockRef parent = printer.interface().getValueDefBlock(entry);
+    if (!parent) {
+      if (!haveDivergentArgs) {
+        out << "DIVERGENT ARGUMENTS:\n";
+        haveDivergentArgs = true;
+      }
+      out << "  DIVERGENT: ";
+      printer.printValue(out, entry);
+      out << '\n';
+    }
+  }
+
+  if (!m_divergentCycleExits.empty()) {
+    out << "DIVERGENT CYCLES:\n";
+    for (const GenericCycleBase *cycle : m_divergentCycleExits) {
+      out << "  " << cycle->print(printer) << '\n';
+    }
+  }
+
+  SmallVector<CfgBlockRef, 16> blocks;
+  SmallVector<CfgValueRef, 16> defs;
+  printer.interface().appendBlocks(m_parent, blocks);
+  for (CfgBlockRef block : blocks) {
+    out << "BLOCK "; printer.printBlockName(out, block);
+    out << '\n';
+
+    printer.interface().appendBlockDefs(block, defs);
+    for (CfgValueRef value : defs) {
+      if (isDivergentAtDef(value))
+        out << "  DIVERGENT: ";
+      else
+        out << "             ";
+      printer.printValue(out, value);
+      out << '\n';
+    }
+    defs.clear();
+  }
+}

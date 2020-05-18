@@ -9,6 +9,7 @@
 #include "llvm/Analysis/ConvergenceUtils.h"
 
 #include "llvm/Analysis/GenericConvergenceAnalysis.h"
+#include "llvm/Analysis/GenericUniformAnalysis.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/AbstractCallSite.h"
 #include "llvm/IR/IRBuilder.h"
@@ -137,6 +138,106 @@ ConvergentOperation *ConvergenceInfo::createIntrinsic(
   return insertOperation(parent, kind, block, call);
 }
 
+namespace {
+
+/// \brief Analysis for computing convergence-aware uniform info on LLVM IR.
+class UniformAnalysis : public GenericUniformAnalysis<UniformAnalysis, IrCfgTraits> {
+  const TargetTransformInfo &m_targetTransformInfo;
+
+public:
+  using Base = GenericUniformAnalysis<UniformAnalysis, IrCfgTraits>;
+
+  UniformAnalysis(UniformInfo &uniformInfo,
+                  const ConvergenceInfo &convergenceInfo,
+                  const DominatorTree &domTree,
+                  const TargetTransformInfo &targetTransformInfo)
+    : Base(uniformInfo, convergenceInfo, domTree),
+      m_targetTransformInfo(targetTransformInfo) {}
+
+  /// Run uniform analysis.
+  void run() {
+    // Handle function arguments.
+    BasicBlock* root = getDomTree().getRootNode()->getBlock();
+    Function* fn = root->getParent();
+
+    for (Argument& arg : fn->args()) {
+      if (m_targetTransformInfo.isSourceOfDivergence(&arg))
+        handleDivergentValue(&arg);
+    }
+
+    // Handle instruction sources of divergence.
+    for (BasicBlock &block : *fn) {
+      for(Instruction &instr : block) {
+        if (m_targetTransformInfo.isSourceOfDivergence(&instr))
+          handleDivergentValue(&instr);
+      }
+    }
+  }
+
+  /// Calls handleDivergent{Terminator,Value} for users of the divergent
+  /// \p value outside of \p outsideCycle (if non-null).
+  void propagateUses(Value *value, const Cycle *outsideCycle) {
+    const CycleInfo &cycleInfo = getCycleInfo();
+    for (User *user : value->users()) {
+      if (auto *userInstruction = dyn_cast<Instruction>(user)) {
+        BlockRef userBlock = userInstruction->getParent();
+        if (outsideCycle) {
+          if (cycleInfo.contains(outsideCycle, cycleInfo.getCycle(userBlock)))
+            continue;
+        }
+
+        if (userInstruction->isTerminator()) {
+          handleDivergentTerminator(userInstruction->getParent());
+        } else {
+          if (!m_targetTransformInfo.isAlwaysUniform(userInstruction))
+            handleDivergentValue(userInstruction);
+        }
+      }
+    }
+  }
+
+  /// Append phi nodes that we still believe to be uniform.
+  void appendUniformPhis(BasicBlock *block, PhiListRef phis) {
+    UniformInfo &uniformInfo = getUniformInfo();
+    for (PHINode &phi : block->phis()) {
+      if (uniformInfo.isDivergentAtDef(&phi))
+        continue; // already known divergent, skip
+
+      PhiRef ref = phis.addPhi(&phi);
+      for (unsigned idx = 0, count = phi.getNumIncomingValues(); idx != count; ++idx) {
+        Value *incoming = phi.getIncomingValue(idx);
+        if (!isa<UndefValue>(incoming))
+          ref.addInput(incoming, phi.getIncomingBlock(idx));
+      }
+    }
+  }
+
+  /// Append values defined in \p block that are still believed to be uniform.
+  void appendDefinedUniformValues(BlockRef block, ValueListRef valueList) {
+    UniformInfo &uniformInfo = getUniformInfo();
+    for (Instruction &instr : *block) {
+      if (instr.getType()->isVoidTy())
+        continue;
+      if (uniformInfo.isDivergentAtDef(&instr))
+        continue;
+
+      valueList.push_back(&instr);
+    }
+  }
+};
+
+} // anonymous namespace
+
+/// \brief Compute the uniform information of an LLVM IR function.
+UniformInfo UniformInfo::compute(const ConvergenceInfo &convergenceInfo,
+                                 const DominatorTree &domTree,
+                                 const TargetTransformInfo &targetTransformInfo) {
+  UniformInfo info;
+  UniformAnalysis analysis(info, convergenceInfo, domTree, targetTransformInfo);
+  analysis.run();
+  return info;
+}
+
 //===----------------------------------------------------------------------===//
 //  ConvergenceInfoAnalysis and related pass implementations
 //===----------------------------------------------------------------------===//
@@ -198,5 +299,75 @@ void ConvergenceInfoWrapperPass::print(raw_ostream &OS, const Module *) const {
 
 void ConvergenceInfoWrapperPass::releaseMemory() {
   m_convergenceInfo.clear();
+  m_function = nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+//  UniformInfoAnalysis and related pass implementations
+//===----------------------------------------------------------------------===//
+
+UniformInfo UniformInfoAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
+  auto &convergenceInfo = FAM.getResult<ConvergenceInfoAnalysis>(F);
+  auto &domTree = FAM.getResult<DominatorTreeAnalysis>(F);
+  auto &targetTransformInfo = FAM.getResult<TargetIRAnalysis>(F);
+  return UniformInfo::compute(convergenceInfo, domTree, targetTransformInfo);
+}
+
+AnalysisKey UniformInfoAnalysis::Key;
+
+UniformInfoPrinterPass::UniformInfoPrinterPass(raw_ostream &OS) : OS(OS) {}
+
+PreservedAnalyses UniformInfoPrinterPass::run(Function &F,
+                                              FunctionAnalysisManager &AM) {
+  OS << "UniformInfo for function '" << F.getName() << "':\n";
+  AM.getResult<UniformInfoAnalysis>(F).print(OS);
+
+  return PreservedAnalyses::all();
+}
+
+//===----------------------------------------------------------------------===//
+//  UniformInfoWrapperPass Implementation
+//===----------------------------------------------------------------------===//
+
+char UniformInfoWrapperPass::ID = 0;
+
+UniformInfoWrapperPass::UniformInfoWrapperPass() : FunctionPass(ID) {
+  initializeUniformInfoWrapperPassPass(*PassRegistry::getPassRegistry());
+}
+
+INITIALIZE_PASS_BEGIN(UniformInfoWrapperPass, "uniforminfo",
+                      "Uniform Info Analysis", true, true)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(ConvergenceInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(TargetTransformInfoWrapperPass)
+INITIALIZE_PASS_END(UniformInfoWrapperPass, "uniforminfo",
+                    "Uniform Info Analysis", true, true)
+
+void UniformInfoWrapperPass::getAnalysisUsage(AnalysisUsage &AU) const {
+  AU.setPreservesAll();
+  AU.addRequired<DominatorTreeWrapperPass>();
+  AU.addRequired<ConvergenceInfoWrapperPass>();
+  AU.addRequired<TargetTransformInfoWrapperPass>();
+}
+
+bool UniformInfoWrapperPass::runOnFunction(Function &F) {
+  auto &convergenceInfo =
+      getAnalysis<ConvergenceInfoWrapperPass>().getConvergenceInfo();
+  auto &domTree = getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+  auto &targetTransformInfo =
+      getAnalysis<TargetTransformInfoWrapperPass>().getTTI(F);
+
+  m_function = &F;
+  m_uniformInfo = UniformInfo::compute(convergenceInfo, domTree, targetTransformInfo);
+  return false;
+}
+
+void UniformInfoWrapperPass::print(raw_ostream &OS, const Module *) const {
+  OS << "UniformInfo for function '" << m_function->getName() << "':\n";
+  m_uniformInfo.print(OS);
+}
+
+void UniformInfoWrapperPass::releaseMemory() {
+  m_uniformInfo.clear();
   m_function = nullptr;
 }
