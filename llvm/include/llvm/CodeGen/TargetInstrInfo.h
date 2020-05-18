@@ -17,6 +17,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/None.h"
+#include "llvm/Analysis/GenericConvergenceUtils.h"
 #include "llvm/CodeGen/MIRFormatter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineCombinerPattern.h"
@@ -1887,6 +1888,12 @@ public:
     if (!Formatter.get())
       Formatter = std::make_unique<MIRFormatter>();
     return Formatter.get();
+  }
+
+  /// Return the uniformity behavior of the given instruction.
+  virtual InstructionUniformity getInstructionUniformity(
+      const MachineInstr &MI) const {
+    return InstructionUniformity::Default;
   }
 
 private:

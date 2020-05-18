@@ -72,6 +72,7 @@ add_llvm_component_library(LLVMCodeGen
   MachineBlockPlacement.cpp
   MachineBranchProbabilityInfo.cpp
   MachineCombiner.cpp
+  MachineConvergenceUtils.cpp
   MachineCopyPropagation.cpp
   MachineCSE.cpp
   MachineCycleInfo.cpp
