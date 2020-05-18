@@ -214,6 +214,24 @@ GenericDominatorTreeBase::findNearestCommonDominatorBlock(CfgBlockRef A,
   return Dom ? Dom->getBlock() : CfgBlockRef();
 }
 
+/// findSiblingOfUncle - Under the assumption that \p Uncle is the sibling
+/// of some ancestor of \p A in the tree, find that ancestor. Also handles
+/// the degenerate case where \p A itself is a sibling of \p Uncle.
+const GenericDomTreeNodeBase *GenericDominatorTreeBase::findSiblingOfUncle(
+    const GenericDomTreeNodeBase *A,
+    const GenericDomTreeNodeBase *Uncle) const {
+  assert(A && Uncle && "Pointers are not valid");
+
+  // Use level information to go up the tree until the levels match.
+  assert(A->getLevel() >= Uncle->getLevel());
+  while (A->getLevel() > Uncle->getLevel())
+    A = A->IDom;
+
+  assert(A->IDom == Uncle->IDom && "Uncle was not in fact an uncle");
+
+  return A;
+}
+
 /// updateDFSNumbers - Assign In and Out numbers to the nodes while walking
 /// dominator tree in dfs order.
 void GenericDominatorTreeBase::updateDFSNumbers() const {
