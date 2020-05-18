@@ -1,13 +1,12 @@
 ; RUN: opt -mtriple=amdgcn-- -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s
+; RUN: opt -disable-output -mtriple=amdgcn-- -passes="print<uniforminfo>" %s 2>&1 | FileCheck %s
 
 ; CHECK-LABEL: 'test1':
-; CHECK-NEXT: DIVERGENT: i32 %bound
+; CHECK: DIVERGENT: i32 %bound
 ; CHECK: {{^  *}}%counter =
 ; CHECK-NEXT: DIVERGENT: %break = icmp sge i32 %counter, %bound
-; CHECK-NEXT: DIVERGENT: br i1 %break, label %footer, label %body
 ; CHECK: {{^  *}}%counter.next =
 ; CHECK: {{^  *}}%counter.footer =
-; CHECK: DIVERGENT: br i1 %break, label %end, label %header
 ; Note: %counter is not divergent!
 define amdgpu_ps void @test1(i32 %bound) {
 entry:

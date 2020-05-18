@@ -1,4 +1,5 @@
-; RUN: opt %s -analyze -divergence -use-gpu-divergence-analysis | FileCheck %s
+; RUN: opt %s -analyze -divergence -use-gpu-divergence-analysis | FileCheck %s --check-prefixes=CHECK,LEGACY
+; RUN: opt %s -disable-output -passes="print<uniforminfo>" 2>&1 | FileCheck %s
 
 target datalayout = "e-i64:64-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
@@ -17,7 +18,7 @@ target triple = "nvptx64-nvidia-cuda"
 ;                        if (i3 == 5) // divergent
 ; because sync dependent on (tid / i3).
 define i32 @unstructured_loop(i1 %entry_cond) {
-; CHECK-LABEL: Printing analysis 'Legacy Divergence Analysis' for function 'unstructured_loop'
+; CHECK-LABEL: for function 'unstructured_loop'
 entry:
   %tid = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   br i1 %entry_cond, label %loop_entry_1, label %loop_entry_2
@@ -39,7 +40,8 @@ loop_latch:
 branch:
   %cmp = icmp eq i32 %i3, 5
   br i1 %cmp, label %then, label %else
-; CHECK: DIVERGENT: br i1 %cmp,
+; CHECK:  DIVERGENT: %cmp =
+; LEGACY: DIVERGENT: br i1 %cmp,
 then:
   ret i32 0
 else:
