@@ -15,6 +15,7 @@ LLVM and API reference documentation.
    BranchWeightMetadata
    Bugpoint
    CommandGuide/index
+   ConvergentOperations
    Coroutines
    DependenceGraphs/index
    ExceptionHandling
@@ -129,6 +130,9 @@ LLVM IR
 
 :doc:`GlobalISel/index`
   This describes the prototype instruction selection replacement, GlobalISel.
+
+:doc:`ConvergentOperations`
+  Description of ``convergent`` operation semantics and related intrinsics.
 
 =====================
 Testing and Debugging
