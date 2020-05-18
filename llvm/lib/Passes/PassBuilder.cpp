@@ -28,6 +28,7 @@
 #include "llvm/Analysis/CFLSteensAliasAnalysis.h"
 #include "llvm/Analysis/CGSCCPassManager.h"
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Analysis/ConvergenceUtils.h"
 #include "llvm/Analysis/CycleInfo.h"
 #include "llvm/Analysis/DDG.h"
 #include "llvm/Analysis/Delinearization.h"
