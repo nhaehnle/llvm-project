@@ -166,6 +166,7 @@ FUNCTION_ANALYSIS("stack-safety-local", StackSafetyAnalysis())
 FUNCTION_ANALYSIS("targetlibinfo", TargetLibraryAnalysis())
 FUNCTION_ANALYSIS("targetir",
                   TM ? TM->getTargetIRAnalysis() : TargetIRAnalysis())
+FUNCTION_ANALYSIS("uniforminfo", UniformInfoAnalysis())
 FUNCTION_ANALYSIS("verify", VerifierAnalysis())
 FUNCTION_ANALYSIS("pass-instrumentation", PassInstrumentationAnalysis(PIC))
 
@@ -283,6 +284,7 @@ FUNCTION_PASS("print<stack-safety-local>", StackSafetyPrinterPass(dbgs()))
 // TODO: rename to print<alias-sets> after NPM switch
 FUNCTION_PASS("print-alias-sets", AliasSetsPrinterPass(dbgs()))
 FUNCTION_PASS("print-predicateinfo", PredicateInfoPrinterPass(dbgs()))
+FUNCTION_PASS("print<uniforminfo>", UniformInfoPrinterPass(dbgs()))
 FUNCTION_PASS("reassociate", ReassociatePass())
 FUNCTION_PASS("scalarizer", ScalarizerPass())
 FUNCTION_PASS("sccp", SCCPPass())

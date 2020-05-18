@@ -55,6 +55,7 @@ add_llvm_component_library(LLVMAnalysis
   FunctionPropertiesAnalysis.cpp
   GenericConvergenceAnalysis.cpp
   GenericConvergenceUtils.cpp
+  GenericUniformAnalysis.cpp
   GlobalsModRef.cpp
   GuardUtils.cpp
   HeatUtils.cpp

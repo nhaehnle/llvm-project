@@ -431,6 +431,7 @@ void initializeThreadSanitizerLegacyPassPass(PassRegistry&);
 void initializeTwoAddressInstructionPassPass(PassRegistry&);
 void initializeTypeBasedAAWrapperPassPass(PassRegistry&);
 void initializeTypePromotionPass(PassRegistry&);
+void initializeUniformInfoWrapperPassPass(PassRegistry&);
 void initializeUnifyFunctionExitNodesLegacyPassPass(PassRegistry &);
 void initializeUnifyLoopExitsLegacyPassPass(PassRegistry &);
 void initializeUnpackMachineBundlesPass(PassRegistry&);
