@@ -300,7 +300,8 @@ bool SIOptimizeExecMaskingPreRA::runOnMachineFunction(MachineFunction &MF) {
         continue;
 
       Register SavedExec = I->getOperand(0).getReg();
-      if (SavedExec.isVirtual() && MRI.hasOneNonDBGUse(SavedExec) &&
+      if (SavedExec.isVirtual() && MRI.getRegClass(SavedExec)->contains(Exec) &&
+          MRI.hasOneNonDBGUse(SavedExec) &&
           MRI.use_instr_nodbg_begin(SavedExec)->getParent() == I->getParent()) {
         LLVM_DEBUG(dbgs() << "Redundant EXEC COPY: " << *I << '\n');
         LIS->RemoveMachineInstrFromMaps(*I);
