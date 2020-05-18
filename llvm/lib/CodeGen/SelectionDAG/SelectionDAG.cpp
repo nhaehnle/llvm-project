@@ -1021,7 +1021,6 @@ SelectionDAG::SelectionDAG(const TargetMachine &tm, CodeGenOpt::Level OL)
 void SelectionDAG::init(MachineFunction &NewMF,
                         OptimizationRemarkEmitter &NewORE,
                         Pass *PassPtr, const TargetLibraryInfo *LibraryInfo,
-                        LegacyDivergenceAnalysis * Divergence,
                         ProfileSummaryInfo *PSIin,
                         BlockFrequencyInfo *BFIin) {
   MF = &NewMF;
@@ -1031,7 +1030,6 @@ void SelectionDAG::init(MachineFunction &NewMF,
   TSI = getSubtarget().getSelectionDAGInfo();
   LibInfo = LibraryInfo;
   Context = &MF->getFunction().getContext();
-  DA = Divergence;
   PSI = PSIin;
   BFI = BFIin;
 }
