@@ -1525,7 +1525,12 @@ def int_preserve_struct_access_index : Intrinsic<[llvm_anyptr_ty],
 //===---------- Intrinsics to query properties of scalable vectors --------===//
 def int_vscale : Intrinsic<[llvm_anyint_ty], [], [IntrNoMem]>;
 
-//===----------------------------------------------------------------------===//
+//===------- Convergence Intrinsics ---------------------------------------===//
+
+def int_convergence_anchor : Intrinsic<[llvm_token_ty], [],
+                                      [IntrNoMem, IntrConvergent]>;
+def int_convergence_loop : Intrinsic<[llvm_token_ty], [llvm_token_ty],
+                                     [IntrNoMem, IntrConvergent]>;
 
 //===----------------------------------------------------------------------===//
 // Target-specific intrinsics
