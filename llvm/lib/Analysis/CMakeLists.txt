@@ -38,6 +38,7 @@ add_llvm_component_library(LLVMAnalysis
   CostModel.cpp
   CodeMetrics.cpp
   ConstantFolding.cpp
+  CycleInfo.cpp
   DDG.cpp
   ConstraintSystem.cpp
   Delinearization.cpp
