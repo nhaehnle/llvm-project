@@ -213,6 +213,60 @@ GenericDominatorTreeBase::findNearestCommonDominatorBlock(BlockHandle A,
   return Dom ? Dom->getBlock() : BlockHandle();
 }
 
+/// climbLhsUntilSiblings - Under the assumption that \p B is the sibling
+/// of some ancestor of \p A in the tree, find that ancestor. Also handles
+/// the degenerate case where \p A itself is a sibling of \p B, or
+/// \p A is a descendant of \p B.
+///
+/// Given an edge A -> B in the control flow graph where B is _not_ dominated
+/// by A, this returns either B (if B dominates A) or a sibling of B that
+/// dominates A.
+///
+/// Example 1:
+///
+///        *
+///       / \
+///      R   B
+///      |
+///      *
+///      |
+///      A
+///
+///    --> return R
+///
+/// Example 2:
+///
+///         *
+///        / \
+///       A   B
+///
+///    --> return A
+///
+/// Example 3:
+///
+///         *
+///         |
+///         B
+///         |
+///         *
+///         |
+///         A
+///
+///    --> return B
+const GenericDomTreeNodeBase *GenericDominatorTreeBase::climbLhsUntilSiblings(
+    const GenericDomTreeNodeBase *A, const GenericDomTreeNodeBase *B) const {
+  assert(A && B && "Pointers are not valid");
+
+  // Use level information to go up the tree until the levels match.
+  assert(A->getLevel() >= B->getLevel());
+  while (A->getLevel() > B->getLevel())
+    A = A->IDom;
+
+  assert(A->IDom == B->IDom);
+
+  return A;
+}
+
 /// updateDFSNumbers - Assign In and Out numbers to the nodes while walking
 /// dominator tree in dfs order.
 void GenericDominatorTreeBase::updateDFSNumbers() const {

@@ -305,6 +305,10 @@ public:
   BlockHandle findNearestCommonDominatorBlock(BlockHandle A,
                                               BlockHandle B) const;
 
+  const GenericDomTreeNodeBase *
+  climbLhsUntilSiblings(const GenericDomTreeNodeBase *A,
+                        const GenericDomTreeNodeBase *B) const;
+
   void updateDFSNumbers() const;
 
 private:
@@ -493,6 +497,12 @@ public:
         GenericDominatorTreeBase::findNearestCommonDominator(getNode(A),
                                                              getNode(B)));
     return dom->getBlock();
+  }
+
+  const TreeNode *climbLhsUntilSiblings(const TreeNode *A,
+                                        const TreeNode *B) const {
+    return static_cast<const TreeNode *>(
+        GenericDominatorTreeBase::climbLhsUntilSiblings(A, B));
   }
 
   //===--------------------------------------------------------------------===//
