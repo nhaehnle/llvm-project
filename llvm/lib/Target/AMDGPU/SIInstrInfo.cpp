@@ -2180,6 +2180,7 @@ bool SIInstrInfo::analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
          I->getOpcode() != AMDGPU::SI_MASK_BRANCH) {
     switch (I->getOpcode()) {
     case AMDGPU::SI_MASK_BRANCH:
+      break;
     case AMDGPU::S_MOV_B64_term:
     case AMDGPU::S_XOR_B64_term:
     case AMDGPU::S_ANDN2_B64_term:
@@ -2187,7 +2188,7 @@ bool SIInstrInfo::analyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
     case AMDGPU::S_XOR_B32_term:
     case AMDGPU::S_OR_B32_term:
     case AMDGPU::S_ANDN2_B32_term:
-      break;
+      return true;
     case AMDGPU::SI_IF:
     case AMDGPU::SI_ELSE:
     case AMDGPU::SI_KILL_I1_TERMINATOR:
