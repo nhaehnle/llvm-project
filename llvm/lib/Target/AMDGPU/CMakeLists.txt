@@ -90,6 +90,7 @@ add_llvm_target(AMDGPUCodeGen
   AMDGPUPrintfRuntimeBinding.cpp
   GCNHazardRecognizer.cpp
   GCNIterativeScheduler.cpp
+  GCNLaneMaskUtils.cpp
   GCNMinRegStrategy.cpp
   GCNRegPressure.cpp
   GCNSchedStrategy.cpp
