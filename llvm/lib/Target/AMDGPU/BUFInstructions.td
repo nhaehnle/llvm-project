@@ -677,6 +677,7 @@ class MUBUF_Atomic_Pseudo<string opName,
   let has_dlc = 0;
   let has_tfe = 0;
   let maybeAtomic = 1;
+  let isSourceOfDivergence = 1;
 }
 
 class MUBUF_AtomicNoRet_Pseudo<string opName, int addrKind,

@@ -7295,6 +7295,59 @@ unsigned SIInstrInfo::getInstrLatency(const InstrItineraryData *ItinData,
   return SchedModel.computeInstrLatency(&MI);
 }
 
+InstructionUniformity SIInstrInfo::getInstructionUniformity(
+    const MachineInstr &MI) const {
+  if (MI.getDesc().TSFlags & SIInstrFlags::isSourceOfDivergence)
+    return InstructionUniformity::NeverUniform;
+
+  // Loads from the private and flat address spaces are divergent, because
+  // threads can execute the load instruction with the same inputs and get
+  // different results.
+  if (isFLAT(MI) && MI.mayLoad()) {
+    if (MI.memoperands_empty())
+      return InstructionUniformity::NeverUniform; // conservative assumption
+
+    if (llvm::all_of(MI.memoperands(),
+                     [](const MachineMemOperand *mmo) {
+                       return mmo->getAddrSpace() == AMDGPUAS::GLOBAL_ADDRESS;
+                     }))
+      return InstructionUniformity::Default;
+
+    // At least one MMO in a non-global address space.
+    return InstructionUniformity::NeverUniform;
+  }
+
+  unsigned opcode = MI.getOpcode();
+  if (opcode == AMDGPU::COPY) {
+    const MachineOperand &srcOp = MI.getOperand(1);
+    if (srcOp.isReg() && srcOp.getReg().isPhysical()) {
+      const SIRegisterInfo &tri = getRegisterInfo();
+      const TargetRegisterClass *regClass = tri.getPhysRegClass(srcOp.getReg());
+      return tri.isSGPRClass(regClass) ?
+            InstructionUniformity::AlwaysUniform :
+            InstructionUniformity::NeverUniform;
+    }
+    return InstructionUniformity::Default;
+  } else if (opcode == AMDGPU::INLINEASM || opcode == AMDGPU::INLINEASM_BR) {
+    const SIRegisterInfo &tri = getRegisterInfo();
+    const MachineRegisterInfo &mri = MI.getParent()->getParent()->getRegInfo();
+    for (const MachineOperand &def : MI.defs()) {
+      if (!tri.isSGPRReg(mri, def.getReg()))
+        return InstructionUniformity::NeverUniform;
+    }
+    return InstructionUniformity::AlwaysUniform;
+  } else if (opcode == AMDGPU::V_READLANE_B32 ||
+             opcode == AMDGPU::V_READFIRSTLANE_B32) {
+    return InstructionUniformity::AlwaysUniform;
+  }
+
+  // TODO: amdgcn.{ballot, [if]cmp} should be AlwaysUniform, but they are
+  //       currently turned into no-op COPYs by SelectionDAG ISel and are
+  //       therefore no longer recognizable.
+
+  return InstructionUniformity::Default;
+}
+
 unsigned SIInstrInfo::getDSShaderTypeValue(const MachineFunction &MF) {
   switch (MF.getFunction().getCallingConv()) {
   case CallingConv::AMDGPU_PS:

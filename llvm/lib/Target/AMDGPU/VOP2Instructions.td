@@ -531,19 +531,22 @@ defm V_SUBREV_U32 : VOP2Inst <"v_subrev_u32", VOP_I32_I32_I32_ARITH, null_frag, 
 
 // These are special and do not read the exec mask.
 let isConvergent = 1, Uses = []<Register> in {
-def V_READLANE_B32 : VOP2_Pseudo<"v_readlane_b32", VOP_READLANE,
-  [(set i32:$vdst, (int_amdgcn_readlane i32:$src0, i32:$src1))]>;
+  def V_READLANE_B32 : VOP2_Pseudo<"v_readlane_b32", VOP_READLANE,
+    [(set i32:$vdst, (int_amdgcn_readlane i32:$src0, i32:$src1))]>;
 
-let Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in" in {
-def V_WRITELANE_B32 : VOP2_Pseudo<"v_writelane_b32", VOP_WRITELANE,
-  [(set i32:$vdst, (int_amdgcn_writelane i32:$src0, i32:$src1, i32:$vdst_in))]>;
-} // End $vdst = $vdst_in, DisableEncoding $vdst_in
+  let Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in",
+      isSourceOfDivergence = 1 in {
+    def V_WRITELANE_B32 : VOP2_Pseudo<"v_writelane_b32", VOP_WRITELANE,
+      [(set i32:$vdst, (int_amdgcn_writelane i32:$src0, i32:$src1, i32:$vdst_in))]>;
+  } // End $vdst = $vdst_in, DisableEncoding $vdst_in
 } // End isConvergent = 1
 
 defm V_BFM_B32 : VOP2Inst <"v_bfm_b32", VOP_NO_EXT<VOP_I32_I32_I32>>;
 defm V_BCNT_U32_B32 : VOP2Inst <"v_bcnt_u32_b32", VOP_NO_EXT<VOP_I32_I32_I32>, add_ctpop>;
-defm V_MBCNT_LO_U32_B32 : VOP2Inst <"v_mbcnt_lo_u32_b32", VOP_NO_EXT<VOP_I32_I32_I32>, int_amdgcn_mbcnt_lo>;
-defm V_MBCNT_HI_U32_B32 : VOP2Inst <"v_mbcnt_hi_u32_b32", VOP_NO_EXT<VOP_I32_I32_I32>, int_amdgcn_mbcnt_hi>;
+let isSourceOfDivergence = 1 in {
+  defm V_MBCNT_LO_U32_B32 : VOP2Inst <"v_mbcnt_lo_u32_b32", VOP_NO_EXT<VOP_I32_I32_I32>, int_amdgcn_mbcnt_lo>;
+  defm V_MBCNT_HI_U32_B32 : VOP2Inst <"v_mbcnt_hi_u32_b32", VOP_NO_EXT<VOP_I32_I32_I32>, int_amdgcn_mbcnt_hi>;
+}
 defm V_LDEXP_F32 : VOP2Inst <"v_ldexp_f32", VOP_NO_EXT<VOP_F32_F32_I32>, AMDGPUldexp>;
 defm V_CVT_PKACCUM_U8_F32 : VOP2Inst <"v_cvt_pkaccum_u8_f32", VOP_NO_EXT<VOP_I32_F32_I32>>; // TODO: set "Uses = dst"
 

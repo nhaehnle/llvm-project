@@ -402,6 +402,7 @@ def SI_PS_LIVE : PseudoInstSI <
   (outs SReg_1:$dst), (ins),
   [(set i1:$dst, (int_amdgcn_ps_live))]> {
   let SALU = 1;
+  let isSourceOfDivergence = 1;
 }
 
 def SI_MASKED_UNREACHABLE : SPseudoInstSI <(outs), (ins),

@@ -623,6 +623,9 @@ class VOP_DPP_Pseudo <string OpName, VOPProfile P, list<dag> pattern=[]> :
   let Uses = !if(ReadsModeReg, [MODE, EXEC], [EXEC]);
   let isConvergent = 1;
 
+  // DPP instructions can introduce divergence via boundary effects.
+  let isSourceOfDivergence = 1;
+
   string Mnemonic = OpName;
   string AsmOperands = P.AsmDPP;
 

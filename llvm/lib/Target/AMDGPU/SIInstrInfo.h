@@ -1060,6 +1060,9 @@ public:
                            const MachineInstr &MI,
                            unsigned *PredCost = nullptr) const override;
 
+  InstructionUniformity getInstructionUniformity(
+      const MachineInstr &MI) const override final;
+
   static unsigned getDSShaderTypeValue(const MachineFunction &MF);
 };
 

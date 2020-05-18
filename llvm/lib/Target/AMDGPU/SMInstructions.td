@@ -227,6 +227,7 @@ class SM_Atomic_Pseudo <string opName,
   let ScalarStore = 1;
   let hasSideEffects = 1;
   let maybeAtomic = 1;
+  let isSourceOfDivergence = 1;
 }
 
 class SM_Pseudo_Atomic<string opName,

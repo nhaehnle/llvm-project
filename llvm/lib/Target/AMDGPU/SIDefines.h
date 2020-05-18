@@ -102,7 +102,14 @@ enum : uint64_t {
   IsMAI = UINT64_C(1) << 54,
 
   // Is a DOT instruction.
-  IsDOT = UINT64_C(1) << 55
+  IsDOT = UINT64_C(1) << 55,
+
+  // Is source of divergence.
+  //
+  // Note: There is no corresponding SIInstrInfo::isSourceOfDivergence method
+  // by design, since this flag only covers opcodes that are _always_ divergent.
+  // Use SIInstrInfo::getInstructionUniformity for a more complete analysis.
+  isSourceOfDivergence = UINT64_C(1) << 56,
 };
 
 // v_cmp_class_* etc. use a 10-bit mask for what operation is checked.

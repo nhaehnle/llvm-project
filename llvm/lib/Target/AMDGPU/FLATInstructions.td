@@ -325,6 +325,7 @@ class FLAT_AtomicNoRet_Pseudo<string opName, dag outs, dag ins,
     let dlcValue = 0;
     let has_vdst = 0;
     let maybeAtomic = 1;
+    let isSourceOfDivergence = 1;
 }
 
 class FLAT_AtomicRet_Pseudo<string opName, dag outs, dag ins,

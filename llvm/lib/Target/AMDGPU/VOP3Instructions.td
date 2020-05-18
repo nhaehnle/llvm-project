@@ -229,6 +229,11 @@ class VOP3Interp<string OpName, VOPProfile P, list<dag> pattern = []> :
                  VOP3_Pseudo<OpName, P, pattern> {
   let AsmMatchConverter = "cvtVOP3Interp";
   let mayRaiseFPException = 0;
+
+  // The result of interpolation instructions depends on the quad index,
+  // which will cause divergence even when the inputs are uniform (e.g.
+  // v_interp_mov_f32).
+  let isSourceOfDivergence = 1;
 }
 
 def VOP3_INTERP : VOPProfile<[f32, f32, i32, untyped]> {
@@ -743,7 +748,8 @@ let SubtargetPredicate = isGFX10Plus in {
   def V_XOR3_B32 : VOP3Inst <"v_xor3_b32", VOP3_Profile<VOP_I32_I32_I32_I32>>;
   def : ThreeOp_i32_Pats<xor, xor, V_XOR3_B32>;
 
-  let Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in" in {
+  let Constraints = "$vdst = $vdst_in", DisableEncoding="$vdst_in",
+      isSourceOfDivergence = 1 in {
     def V_PERMLANE16_B32 : VOP3Inst <"v_permlane16_b32", VOP3_PERMLANE_Profile>;
     def V_PERMLANEX16_B32 : VOP3Inst <"v_permlanex16_b32", VOP3_PERMLANE_Profile>;
   } // End $vdst = $vdst_in, DisableEncoding $vdst_in
