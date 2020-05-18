@@ -1,4 +1,5 @@
 ; RUN: opt -mtriple=amdgcn-- -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s
+; RUN: opt -disable-output -mtriple=amdgcn-- -passes="print<uniforminfo>" %s 2>&1 | FileCheck %s
 
 ; CHECK: DIVERGENT: %orig = atomicrmw xchg i32* %ptr, i32 %val seq_cst
 define i32 @test1(i32* %ptr, i32 %val) #0 {

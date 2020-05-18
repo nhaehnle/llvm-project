@@ -1,8 +1,7 @@
 ; RUN: opt -mtriple amdgcn-unknown-amdhsa -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s
+; RUN: opt -disable-output -mtriple=amdgcn-- -passes="print<uniforminfo>" %s 2>&1 | FileCheck %s
 
-; CHECK: bb3:
 ; CHECK: DIVERGENT:       %Guard.bb4 = phi i1 [ true, %bb1 ], [ false, %bb2 ]
-; CHECK: DIVERGENT:       br i1 %Guard.bb4, label %bb4, label %bb5
 
 ; Function Attrs: nounwind readnone speculatable
 declare i32 @llvm.amdgcn.workitem.id.x() #0

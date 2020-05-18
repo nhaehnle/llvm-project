@@ -1,4 +1,5 @@
-; RUN: opt -mtriple=amdgcn-- -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s
+; RUN: opt -mtriple=amdgcn-- -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s --check-prefixes=CHECK,LEGACY
+; RUN: opt -disable-output -mtriple=amdgcn-- -passes="print<uniforminfo>" %s 2>&1 | FileCheck %s
 
 ; This test contains an unstructured loop.
 ;           +-------------- entry ----------------+
@@ -14,7 +15,7 @@
 ;                        if (i3 == 5) // divergent
 ; because sync dependent on (tid / i3).
 define i32 @unstructured_loop(i1 %entry_cond) {
-; CHECK-LABEL: Printing analysis 'Legacy Divergence Analysis' for function 'unstructured_loop'
+; CHECK-LABEL: for function 'unstructured_loop'
 entry:
   %tid = call i32 @llvm.amdgcn.workitem.id.x()
   br i1 %entry_cond, label %loop_entry_1, label %loop_entry_2
@@ -36,7 +37,8 @@ loop_latch:
 branch:
   %cmp = icmp eq i32 %i3, 5
   br i1 %cmp, label %then, label %else
-; CHECK: DIVERGENT: br i1 %cmp,
+; CHECK:  DIVERGENT: %cmp = icmp eq i32 %i3, 5
+; LEGACY: DIVERGENT: br i1 %cmp,
 then:
   ret i32 0
 else:
