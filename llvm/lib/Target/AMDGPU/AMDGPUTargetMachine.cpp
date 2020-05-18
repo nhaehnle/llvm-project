@@ -134,6 +134,16 @@ static cl::opt<bool, true> LateCFGStructurize(
   cl::location(AMDGPUTargetMachine::EnableLateStructurizeCFG),
   cl::Hidden);
 
+// Option to run late CFG structurizer
+static cl::opt<bool, false> UseNewControlFlow(
+  "amdgpu-use-new-control-flow",
+  cl::desc("Use new control flow implementation"),
+  cl::Hidden);
+
+bool AMDGPUTargetMachine::getUseNewControlFlow() {
+  return UseNewControlFlow;
+}
+
 static cl::opt<bool, true> EnableAMDGPUFunctionCallsOpt(
   "amdgpu-function-calls",
   cl::desc("Enable AMDGPU function call support"),
@@ -264,6 +274,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAMDGPUTarget() {
   initializeAMDGPUPrintfRuntimeBindingPass(*PR);
   initializeGCNRegBankReassignPass(*PR);
   initializeGCNNSAReassignPass(*PR);
+  initializeGCNWaveTransformPass(*PR);
   initializeSIAddIMGInitPass(*PR);
 }
 
@@ -802,7 +813,9 @@ bool AMDGPUPassConfig::addPreISel() {
 
 bool AMDGPUPassConfig::addInstSelector() {
   // Defer the verifier until FinalizeISel.
-  addPass(createAMDGPUISelDag(&getAMDGPUTargetMachine(), getOptLevel()), false);
+  addPass(createAMDGPUISelDag(&getAMDGPUTargetMachine(), getOptLevel(),
+                              UseNewControlFlow),
+          false);
   return false;
 }
 
@@ -876,19 +889,25 @@ bool GCNPassConfig::addPreISel() {
 
   // Merge divergent exit nodes. StructurizeCFG won't recognize the multi-exit
   // regions formed by them.
+  //
+  // TODO: new control flow should just unify in GCNWaveTransform
   addPass(&AMDGPUUnifyDivergentExitNodesID);
-  if (!LateCFGStructurize) {
-    if (EnableStructurizerWorkarounds) {
-      addPass(createFixIrreduciblePass());
-      addPass(createUnifyLoopExitsPass());
+  if (!UseNewControlFlow) {
+    if (!LateCFGStructurize) {
+      if (EnableStructurizerWorkarounds) {
+        addPass(createFixIrreduciblePass());
+        addPass(createUnifyLoopExitsPass());
+      }
+      addPass(createStructurizeCFGPass(false)); // true -> SkipUniformRegions
+      addPass(createSinkingPass());
     }
-    addPass(createStructurizeCFGPass(false)); // true -> SkipUniformRegions
+    addPass(createAMDGPUAnnotateUniformValues());
+    if (!LateCFGStructurize) {
+      addPass(createSIAnnotateControlFlowPass());
+    }
   }
-  addPass(createSinkingPass());
-  addPass(createAMDGPUAnnotateUniformValues());
-  if (!LateCFGStructurize) {
-    addPass(createSIAnnotateControlFlowPass());
-  }
+
+  // TODO: new control flow should handle this based on cycle info
   addPass(createLCSSAPass());
 
   return false;
@@ -929,6 +948,8 @@ bool GCNPassConfig::addILPOpts() {
 
 bool GCNPassConfig::addInstSelector() {
   AMDGPUPassConfig::addInstSelector();
+  if (UseNewControlFlow)
+    addPass(createGCNWaveTransformPass());
   addPass(&SIFixSGPRCopiesID);
   addPass(createSILowerI1CopiesPass());
   addPass(createSIAddIMGInitPass());
@@ -977,10 +998,12 @@ void GCNPassConfig::addFastRegAlloc() {
   // FIXME: We have to disable the verifier here because of PHIElimination +
   // TwoAddressInstructions disabling it.
 
-  // This must be run immediately after phi elimination and before
-  // TwoAddressInstructions, otherwise the processing of the tied operand of
-  // SI_ELSE will introduce a copy of the tied operand source after the else.
-  insertPass(&PHIEliminationID, &SILowerControlFlowID, false);
+  if (!UseNewControlFlow) {
+    // This must be run immediately after phi elimination and before
+    // TwoAddressInstructions, otherwise the processing of the tied operand of
+    // SI_ELSE will introduce a copy of the tied operand source after the else.
+    insertPass(&PHIEliminationID, &SILowerControlFlowID, false);
+  }
 
   // This must be run just after RegisterCoalescing.
   insertPass(&RegisterCoalescerID, &SIPreAllocateWWMRegsID, false);
@@ -998,10 +1021,12 @@ void GCNPassConfig::addOptimizedRegAlloc() {
     insertPass(&MachineSchedulerID, &SIOptimizeExecMaskingPreRAID);
   insertPass(&MachineSchedulerID, &SIFormMemoryClausesID);
 
-  // This must be run immediately after phi elimination and before
-  // TwoAddressInstructions, otherwise the processing of the tied operand of
-  // SI_ELSE will introduce a copy of the tied operand source after the else.
-  insertPass(&PHIEliminationID, &SILowerControlFlowID, false);
+  if (!UseNewControlFlow) {
+    // This must be run immediately after phi elimination and before
+    // TwoAddressInstructions, otherwise the processing of the tied operand of
+    // SI_ELSE will introduce a copy of the tied operand source after the else.
+    insertPass(&PHIEliminationID, &SILowerControlFlowID, false);
+  }
 
   if (EnableDCEInRA)
     insertPass(&DetectDeadLanesID, &DeadMachineInstructionElimID);

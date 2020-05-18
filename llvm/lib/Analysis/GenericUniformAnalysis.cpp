@@ -37,7 +37,7 @@
 ///     \   /
 ///       F
 /// Assume that A contains a divergent terminator. We are interested in the set
-/// of all blocks where each block is reachable from A via two disjoint paths.
+/// of all blocks that are reachable from A via two disjoint paths.
 /// This would be the set {D, F} in this case.
 /// To generally reduce this query to SSA construction we introduce a virtual
 /// variable x and assign to x different values in each successor block of A.

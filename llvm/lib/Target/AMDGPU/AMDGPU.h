@@ -201,8 +201,9 @@ extern char &AMDGPUPromoteAllocaToVectorID;
 
 Pass *createAMDGPUStructurizeCFGPass();
 FunctionPass *createAMDGPUISelDag(
-  TargetMachine *TM = nullptr,
-  CodeGenOpt::Level OptLevel = CodeGenOpt::Default);
+    TargetMachine *TM = nullptr,
+    CodeGenOpt::Level OptLevel = CodeGenOpt::Default,
+    bool UseNewControlFlow = false);
 ModulePass *createAMDGPUAlwaysInlinePass(bool GlobalOpt = true);
 ModulePass *createR600OpenCLImageTypeLoweringPass();
 FunctionPass *createAMDGPUAnnotateUniformValues();
@@ -270,6 +271,9 @@ extern char &GCNRegBankReassignID;
 
 void initializeGCNNSAReassignPass(PassRegistry &);
 extern char &GCNNSAReassignID;
+
+FunctionPass *createGCNWaveTransformPass();
+void initializeGCNWaveTransformPass(PassRegistry &);
 
 namespace AMDGPU {
 enum TargetIndex {

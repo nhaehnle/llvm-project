@@ -398,6 +398,14 @@ def SI_BR_UNDEF : SPseudoInstSI <(outs), (ins sopp_brtarget:$simm16)> {
   let isBranch = 1;
 }
 
+// Conditional thread-level branch mirroring G_BRCOND.
+// Used by new control flow on the SelectionDAG path.
+def SI_BRCOND : SPseudoInstSI <(outs), (ins SReg_1:$cond, sopp_brtarget:$target)> {
+  let isTerminator = 1;
+//  let usesCustomInserter = 1;
+  let isBranch = 1;
+}
+
 def SI_PS_LIVE : PseudoInstSI <
   (outs SReg_1:$dst), (ins),
   [(set i1:$dst, (int_amdgcn_ps_live))]> {

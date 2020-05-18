@@ -27,6 +27,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Analysis/ConvergenceUtils.h"
 #include "llvm/Analysis/LegacyDivergenceAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
@@ -133,18 +134,25 @@ class AMDGPUDAGToDAGISel : public SelectionDAGISel {
   AMDGPU::SIModeRegisterDefaults Mode;
 
   bool EnableLateStructurizeCFG;
+  bool UseNewControlFlow;
 
 public:
   explicit AMDGPUDAGToDAGISel(TargetMachine *TM = nullptr,
-                              CodeGenOpt::Level OptLevel = CodeGenOpt::Default)
-    : SelectionDAGISel(*TM, OptLevel) {
+                              CodeGenOpt::Level OptLevel = CodeGenOpt::Default,
+                              bool UseNewControlFlow = false)
+    : SelectionDAGISel(*TM, OptLevel),
+      UseNewControlFlow(UseNewControlFlow) {
     EnableLateStructurizeCFG = AMDGPUTargetMachine::EnableLateStructurizeCFG;
   }
   ~AMDGPUDAGToDAGISel() override = default;
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<AMDGPUArgumentUsageInfo>();
-    AU.addRequired<LegacyDivergenceAnalysis>();
+    if (UseNewControlFlow) {
+      AU.addRequired<UniformInfoWrapperPass>();
+    } else {
+      AU.addRequired<LegacyDivergenceAnalysis>();
+    }
 #ifdef EXPENSIVE_CHECKS
     AU.addRequired<DominatorTreeWrapperPass>();
     AU.addRequired<LoopInfoWrapperPass>();
@@ -376,6 +384,7 @@ INITIALIZE_PASS_BEGIN(AMDGPUDAGToDAGISel, "amdgpu-isel",
 INITIALIZE_PASS_DEPENDENCY(AMDGPUArgumentUsageInfo)
 INITIALIZE_PASS_DEPENDENCY(AMDGPUPerfHintAnalysis)
 INITIALIZE_PASS_DEPENDENCY(LegacyDivergenceAnalysis)
+INITIALIZE_PASS_DEPENDENCY(UniformInfoWrapperPass)
 #ifdef EXPENSIVE_CHECKS
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
@@ -386,8 +395,9 @@ INITIALIZE_PASS_END(AMDGPUDAGToDAGISel, "amdgpu-isel",
 /// This pass converts a legalized DAG into a AMDGPU-specific
 // DAG, ready for instruction scheduling.
 FunctionPass *llvm::createAMDGPUISelDag(TargetMachine *TM,
-                                        CodeGenOpt::Level OptLevel) {
-  return new AMDGPUDAGToDAGISel(TM, OptLevel);
+                                        CodeGenOpt::Level OptLevel,
+                                        bool UseNewControlFlow) {
+  return new AMDGPUDAGToDAGISel(TM, OptLevel, UseNewControlFlow);
 }
 
 /// This pass converts a legalized DAG into a R600-specific
@@ -407,7 +417,11 @@ bool AMDGPUDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
 #endif
   Subtarget = &MF.getSubtarget<GCNSubtarget>();
   Mode = AMDGPU::SIModeRegisterDefaults(MF.getFunction());
-  CurDAG->setDivergenceAnalysis(&getAnalysis<LegacyDivergenceAnalysis>());
+  if (UseNewControlFlow) {
+    CurDAG->setDivergenceAnalysis(&getAnalysis<UniformInfoWrapperPass>().getUniformInfo());
+  } else {
+    CurDAG->setDivergenceAnalysis(&getAnalysis<LegacyDivergenceAnalysis>());
+  }
   return SelectionDAGISel::runOnMachineFunction(MF);
 }
 
@@ -2229,6 +2243,14 @@ bool AMDGPUDAGToDAGISel::isCBranchSCC(const SDNode *N) const {
 }
 
 void AMDGPUDAGToDAGISel::SelectBRCOND(SDNode *N) {
+  if (AMDGPUTargetMachine::getUseNewControlFlow()) {
+    CurDAG->SelectNodeTo(N, AMDGPU::SI_BRCOND, MVT::Other,
+                         N->getOperand(1), // condition
+                         N->getOperand(2), // true basic block
+                         N->getOperand(0)); // chain
+    return;
+  }
+
   SDValue Cond = N->getOperand(1);
 
   if (Cond.isUndef()) {
