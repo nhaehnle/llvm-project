@@ -1807,7 +1807,7 @@ struct DSEState {
         if (CommonPred)
           WorkList.insert(CommonPred);
         else
-          for (BasicBlock *R : PDT.getRoots())
+          for (BasicBlock *R : PDT.roots())
             WorkList.insert(R);
 
         NumCFGTries++;
