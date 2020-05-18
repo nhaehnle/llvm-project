@@ -23,6 +23,7 @@ add_llvm_component_library(LLVMAnalysis
   CostModel.cpp
   CodeMetrics.cpp
   ConstantFolding.cpp
+  ConvergenceUtils.cpp
   CycleInfo.cpp
   DDG.cpp
   Delinearization.cpp
@@ -34,6 +35,8 @@ add_llvm_component_library(LLVMAnalysis
   DomTreeUpdater.cpp
   DominanceFrontier.cpp
   EHPersonalities.cpp
+  GenericConvergenceAnalysis.cpp
+  GenericConvergenceUtils.cpp
   GenericCycleInfo.cpp
   GlobalsModRef.cpp
   GuardUtils.cpp
