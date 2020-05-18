@@ -44,6 +44,21 @@ namespace llvm {
 class GenericDominatorTreeBase;
 template <typename NodeT, bool IsPostDom> class DominatorTreeBase;
 
+/// Enum describing how instructions behave with respect to uniformity and
+/// divergence, to answer the question: if the same instruction is executed by
+/// two threads in a convergent set of threads, will its result value(s) be
+/// uniform, i.e. the same on both threads?
+enum class InstructionUniformity {
+  /// The result values are uniform if and only if all operands are uniform.
+  Default,
+
+  /// The result values are always uniform.
+  AlwaysUniform,
+
+  /// The result values can never be assumed to be uniform.
+  NeverUniform
+};
+
 /// \brief Type-erased information about CFG convergence.
 class GenericConvergenceInfoBase {
   friend class GenericConvergenceAnalysisBase;
@@ -230,6 +245,65 @@ public:
 
   BlockRef operator[](size_t idx) const {
     return CfgTraits::fromGeneric(ConvergenceAdjustedPostOrderBase::operator[](idx));
+  }
+};
+
+/// \brief Type-erased conservative convergence-aware uniform analysis results.
+///
+/// Computed by \ref GenericUniformAnalysis.
+class GenericUniformInfoBase {
+  friend class GenericUniformAnalysisBase;
+  template<typename AnalysisT, typename CfgTraitsT>
+  friend class GenericUniformAnalysis;
+
+protected:
+  CfgParentRef m_parent;
+  DenseSet<CfgValueRef> m_divergentValues;
+  DenseSet<CfgBlockRef> m_divergentBlocks; ///< Blocks with divergent terminators
+  DenseSet<const GenericCycleBase *> m_divergentCycleExits;
+
+public:
+  void clear();
+
+  /// Whether \p value is divergent at its definition.
+  bool isDivergentAtDef(CfgValueRef value) const;
+
+  bool hasDivergentExit(const GenericCycleBase *cycle) const;
+  bool hasDivergentTerminator(CfgBlockRef block) const;
+
+  /// TODO
+//  bool isDivergentAtUse(void *value, void *useBlock) const;
+
+protected:
+  void print(const CfgPrinter &printer, raw_ostream &out) const;
+};
+
+/// \brief Conservative convergence-aware uniform analysis results.
+template<typename CfgTraitsT>
+class GenericUniformInfo : public GenericUniformInfoBase {
+public:
+  using CfgTraits = CfgTraitsT;
+  using BlockRef = typename CfgTraits::BlockRef;
+  using ValueRef = typename CfgTraits::ValueRef;
+
+  bool isDivergentAtDef(ValueRef value) const {
+    return GenericUniformInfoBase::isDivergentAtDef(CfgTraits::toGeneric(value));
+  }
+  bool hasDivergentExit(const GenericCycleBase *cycle) const {
+    return GenericUniformInfoBase::hasDivergentExit(cycle);
+  }
+  bool hasDivergentTerminator(BlockRef block) const {
+    return GenericUniformInfoBase::hasDivergentTerminator(CfgTraits::toGeneric(block));
+  }
+
+  void print(raw_ostream &out) const {
+    if (!m_parent)
+      return;
+
+    GenericUniformInfoBase::print(
+        CfgPrinterImpl<CfgTraits>(
+            CfgInterfaceImpl<CfgTraits>(CfgTraits::fromGeneric(m_parent))),
+        out);
   }
 };
 

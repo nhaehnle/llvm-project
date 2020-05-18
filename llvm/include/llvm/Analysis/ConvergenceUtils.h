@@ -19,6 +19,7 @@
 
 #include "CycleInfo.h"
 #include "GenericConvergenceUtils.h"
+#include "LegacyDivergenceAnalysis.h"
 #include "llvm/IR/Dominators.h"
 
 namespace llvm {
@@ -29,6 +30,20 @@ class TargetTransformInfo;
 class ConvergenceInfo : public GenericConvergenceInfo<IrCfgTraits> {
 public:
   static ConvergenceInfo compute(const DominatorTree &domTree);
+};
+
+/// \brief Convergence-aware uniform info for LLVM IR.
+class UniformInfo : public GenericUniformInfo<IrCfgTraits>,
+                    public IDivergenceAnalysis {
+public:
+  bool isDivergent(const Value *value) const override final {
+    // TODO: Clean up const_cast?
+    return isDivergentAtDef(const_cast<Value *>(value));
+  }
+
+  static UniformInfo compute(const ConvergenceInfo &convergenceInfo,
+                             const DominatorTree &domTree,
+                             const TargetTransformInfo &targetTransformInfo);
 };
 
 /// Analysis pass which computes \ref ConvergenceInfo.
@@ -68,6 +83,53 @@ public:
 
   ConvergenceInfo &getConvergenceInfo() { return m_convergenceInfo; }
   const ConvergenceInfo &getConvergenceInfo() const { return m_convergenceInfo; }
+
+  bool runOnFunction(Function &F) override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+  void releaseMemory() override;
+  void print(raw_ostream &OS, const Module *M = nullptr) const override;
+
+  // TODO: verify analysis
+};
+
+/// Analysis pass which computes \ref UniformInfo.
+class UniformInfoAnalysis : public AnalysisInfoMixin<UniformInfoAnalysis> {
+  friend AnalysisInfoMixin<UniformInfoAnalysis>;
+  static AnalysisKey Key;
+
+public:
+  /// Provide the result typedef for this analysis pass.
+  using Result = UniformInfo;
+
+  /// Run the analysis pass over a function and produce a dominator tree.
+  UniformInfo run(Function &F, FunctionAnalysisManager &);
+
+  // TODO: verify analysis
+};
+
+/// Printer pass for the \c UniformInfo.
+class UniformInfoPrinterPass
+    : public PassInfoMixin<UniformInfoPrinterPass> {
+  raw_ostream &OS;
+
+public:
+  explicit UniformInfoPrinterPass(raw_ostream &OS);
+
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM);
+};
+
+/// Legacy analysis pass which computes a \ref CycleInfo.
+class UniformInfoWrapperPass : public FunctionPass {
+  Function *m_function = nullptr;
+  UniformInfo m_uniformInfo;
+
+public:
+  static char ID;
+
+  UniformInfoWrapperPass();
+
+  UniformInfo &getUniformInfo() { return m_uniformInfo; }
+  const UniformInfo &getUniformInfo() const { return m_uniformInfo; }
 
   bool runOnFunction(Function &F) override;
   void getAnalysisUsage(AnalysisUsage &AU) const override;
