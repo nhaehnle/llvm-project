@@ -1,15 +1,17 @@
-; RUN: opt %s -analyze -divergence -use-gpu-divergence-analysis | FileCheck %s
+; RUN: opt %s -analyze -divergence -use-gpu-divergence-analysis | FileCheck %s --check-prefixes=CHECK,LEGACY
+; RUN: opt %s -disable-output -passes="print<uniforminfo>" 2>&1 | FileCheck %s
 
 target datalayout = "e-i64:64-v16:16-v32:32-n16:32:64"
 target triple = "nvptx64-nvidia-cuda"
 
 define i32 @daorder(i32 %n) {
-; CHECK-LABEL: Printing analysis 'Legacy Divergence Analysis' for function 'daorder'
+; CHECK-LABEL: for function 'daorder'
 entry:
   %tid = call i32 @llvm.nvvm.read.ptx.sreg.tid.x()
   %cond = icmp slt i32 %tid, 0
   br i1 %cond, label %A, label %B ; divergent
-; CHECK: DIVERGENT: br i1 %cond,
+; CHECK:  DIVERGENT: %cond =
+; LEGACY: DIVERGENT: br i1 %cond,
 A:
   %defAtA = add i32 %n, 1 ; uniform
 ; CHECK-NOT: DIVERGENT: %defAtA = 

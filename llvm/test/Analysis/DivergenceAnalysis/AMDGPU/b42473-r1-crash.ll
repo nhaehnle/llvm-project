@@ -1,16 +1,17 @@
-; RUN: opt -mtriple amdgcn-unknown-amdhsa -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s
+; RUN: opt -mtriple amdgcn-unknown-amdhsa -analyze -divergence -use-gpu-divergence-analysis %s | FileCheck %s --check-prefixes=CHECK,LEGACY
+; RUN: opt -disable-output -mtriple amdgcn-unknown-amdhsa -passes="print<uniforminfo>" %s 2>&1 | FileCheck %s
 
 declare i32 @gf2(i32)
 declare i32 @gf1(i32)
 
 define  void @tw1(i32 addrspace(4)* noalias nocapture readonly %A, i32 addrspace(4)* noalias nocapture %B) local_unnamed_addr #2 {
-; CHECK: Printing analysis 'Legacy Divergence Analysis' for function 'tw1':
-; CHECK: DIVERGENT: i32 addrspace(4)* %A
-; CHECK: DIVERGENT: i32 addrspace(4)* %B
+; CHECK: for function 'tw1':
+; CHECK-DAG: DIVERGENT: i32 addrspace(4)* %A
+; CHECK-DAG: DIVERGENT: i32 addrspace(4)* %B
 entry:
 ; CHECK: DIVERGENT:       %call = tail call i32 @gf2(i32 0) #0
 ; CHECK: DIVERGENT:       %cmp = icmp ult i32 %call, 16
-; CHECK: DIVERGENT:       br i1 %cmp, label %if.then, label %new_exit
+; LEGACY: DIVERGENT:      br i1 %cmp, label %if.then, label %new_exit
   %call = tail call  i32 @gf2(i32 0) #3
   %cmp = icmp ult i32 %call, 16
   br i1 %cmp, label %if.then, label %new_exit
@@ -21,7 +22,7 @@ if.then:
 ; CHECK: DIVERGENT:       %0 = load i32, i32 addrspace(4)* %arrayidx, align 4
 ; CHECK: DIVERGENT:       %cmp225 = icmp sgt i32 %0, 0
 ; CHECK: DIVERGENT:       %arrayidx10 = getelementptr inbounds i32, i32 addrspace(4)* %B, i32 %call1
-; CHECK: DIVERGENT:       br i1 %cmp225, label %while.body.preheader, label %if.then.while.end_crit_edge
+; LEGACY: DIVERGENT:      br i1 %cmp225, label %while.body.preheader, label %if.then.while.end_crit_edge
   %call1 = tail call  i32 @gf1(i32 0) #4
   %arrayidx = getelementptr inbounds i32, i32 addrspace(4)* %A, i32 %call1
   %0 = load i32, i32 addrspace(4)* %arrayidx, align 4
@@ -43,7 +44,7 @@ while.body:
 ; CHECK: DIVERGENT:       %cmp4 = icmp ult i32 %call3, 10
 ; CHECK: DIVERGENT:       %arrayidx6 = getelementptr inbounds i32, i32 addrspace(4)* %A, i32 %i.026
 ; CHECK: DIVERGENT:       %1 = load i32, i32 addrspace(4)* %arrayidx6, align 4
-; CHECK: DIVERGENT:       br i1 %cmp4, label %if.then5, label %if.else
+; LEGACY: DIVERGENT:      br i1 %cmp4, label %if.then5, label %if.else
   %i.026 = phi i32 [ %inc, %if.end.while.body_crit_edge ], [ 0, %while.body.preheader ]
   %call3 = tail call  i32 @gf1(i32 0) #4
   %cmp4 = icmp ult i32 %call3, 10
@@ -74,7 +75,7 @@ if.end:
 ; CHECK: DIVERGENT:       store i32 %storemerge, i32 addrspace(4)* %arrayidx10, align 4
 ; CHECK-NOT: DIVERGENT:                  %inc = add nuw nsw i32 %i.026, 1
 ; CHECK: DIVERGENT:       %exitcond = icmp ne i32 %inc, %0
-; CHECK: DIVERGENT:       br i1 %exitcond, label %if.end.while.body_crit_edge, label %while.end.loopexit
+; LEGACY: DIVERGENT:      br i1 %exitcond, label %if.end.while.body_crit_edge, label %while.end.loopexit
   %storemerge = phi i32 [ %add11, %if.else ], [ %add, %if.then5 ]
   store i32 %storemerge, i32 addrspace(4)* %arrayidx10, align 4
   %inc = add nuw nsw i32 %i.026, 1
