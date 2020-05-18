@@ -24,6 +24,7 @@
 #define LLVM_SUPPORT_GENERICDOMTREE_H
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -841,6 +842,36 @@ using DomTreeBase = DominatorTreeBase<T, false>;
 
 template <typename T>
 using PostDomTreeBase = DominatorTreeBase<T, true>;
+
+//===-------------------------------------
+// GraphTraits specializations so that the generic type-erased dominator tree
+// can be iterated by generic graph iterators.
+
+template <class Node, class ChildIterator> struct DomTreeGraphTraitsBase {
+  using NodeRef = Node *;
+  using ChildIteratorType = ChildIterator;
+  using nodes_iterator = df_iterator<Node *, df_iterator_default_set<Node *>>;
+
+  static NodeRef getEntryNode(NodeRef N) { return N; }
+  static ChildIteratorType child_begin(NodeRef N) { return N->begin(); }
+  static ChildIteratorType child_end(NodeRef N) { return N->end(); }
+
+  static nodes_iterator nodes_begin(NodeRef N) {
+    return df_begin(getEntryNode(N));
+  }
+
+  static nodes_iterator nodes_end(NodeRef N) { return df_end(getEntryNode(N)); }
+};
+
+template <>
+struct GraphTraits<GenericDomTreeNodeBase *>
+    : public DomTreeGraphTraitsBase<GenericDomTreeNodeBase,
+                                    GenericDomTreeNodeBase::iterator> {};
+
+template <>
+struct GraphTraits<const GenericDomTreeNodeBase *>
+    : public DomTreeGraphTraitsBase<const GenericDomTreeNodeBase,
+                                    GenericDomTreeNodeBase::const_iterator> {};
 
 } // end namespace llvm
 
