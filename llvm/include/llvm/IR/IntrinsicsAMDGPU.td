@@ -1394,6 +1394,14 @@ def int_amdgcn_cvt_pk_u8_f32 :
   [IntrNoMem, IntrSpeculatable, IntrWillReturn]
 >;
 
+def int_amdgcn_subgroup_ballot :
+  Intrinsic<[llvm_anyint_ty], [llvm_token_ty, llvm_i1_ty],
+            [IntrNoMem, IntrConvergent]>;
+
+def int_amdgcn_subgroup_readfirstlane :
+  Intrinsic<[llvm_any_ty], [llvm_token_ty, LLVMMatchType<0>],
+            [IntrNoMem, IntrConvergent]>;
+
 def int_amdgcn_icmp :
   Intrinsic<[llvm_anyint_ty], [llvm_anyint_ty, LLVMMatchType<1>, llvm_i32_ty],
             [IntrNoMem, IntrConvergent, IntrWillReturn,
