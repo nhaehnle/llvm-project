@@ -175,7 +175,7 @@ define void @func_non_entry_block_static_alloca_align4(i32 addrspace(1)* %out, i
 ; GCN-NEXT:    s_cbranch_execz BB2_3
 ; GCN-NEXT:  ; %bb.1: ; %bb.0
 ; GCN-NEXT:    v_cmp_eq_u32_e32 vcc, 0, v3
-; GCN-NEXT:    s_and_b64 exec, exec, vcc
+; GCN-NEXT:    s_and_saveexec_b64 s[6:7], vcc
 ; GCN-NEXT:    s_cbranch_execz BB2_3
 ; GCN-NEXT:  ; %bb.2: ; %bb.1
 ; GCN-NEXT:    s_add_u32 s6, s32, 0x1000
