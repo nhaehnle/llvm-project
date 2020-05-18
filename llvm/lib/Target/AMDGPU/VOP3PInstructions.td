@@ -390,7 +390,8 @@ def V_ACCVGPR_WRITE_B32 : VOP3Inst<"v_accvgpr_write_b32", VOPProfileAccWrite> {
 }
 
 // FP32 denorm mode is respected, rounding mode is not. Exceptions are not supported.
-let isConvergent = 1, mayRaiseFPException = 0, ReadsModeReg = 1 in {
+let isConvergent = 1, mayRaiseFPException = 0, ReadsModeReg = 1,
+    isSourceOfDivergence = 1 in {
 def V_MFMA_F32_4X4X1F32    : VOP3Inst<"v_mfma_f32_4x4x1f32",    VOPProfileMAI_F32_F32_X4,    int_amdgcn_mfma_f32_4x4x1f32>;
 def V_MFMA_F32_4X4X4F16    : VOP3Inst<"v_mfma_f32_4x4x4f16",    VOPProfileMAI_F32_V4F16_X4,  int_amdgcn_mfma_f32_4x4x4f16>;
 def V_MFMA_I32_4X4X4I8     : VOP3Inst<"v_mfma_i32_4x4x4i8",     VOPProfileMAI_I32_I32_X4,    int_amdgcn_mfma_i32_4x4x4i8>;
@@ -411,7 +412,7 @@ def V_MFMA_I32_32X32X4I8   : VOP3Inst<"v_mfma_i32_32x32x4i8",   VOPProfileMAI_I3
 def V_MFMA_I32_32X32X8I8   : VOP3Inst<"v_mfma_i32_32x32x8i8",   VOPProfileMAI_I32_I32_X16,   int_amdgcn_mfma_i32_32x32x8i8>;
 def V_MFMA_F32_32X32X2BF16 : VOP3Inst<"v_mfma_f32_32x32x2bf16", VOPProfileMAI_F32_V2I16_X32, int_amdgcn_mfma_f32_32x32x2bf16>;
 def V_MFMA_F32_32X32X4BF16 : VOP3Inst<"v_mfma_f32_32x32x4bf16", VOPProfileMAI_F32_V2I16_X16, int_amdgcn_mfma_f32_32x32x4bf16>;
-} // End isConvergent = 1, mayRaiseFPException = 0, ReadsModeReg = 1
+}
 
 } // End SubtargetPredicate = HasMAIInsts
 

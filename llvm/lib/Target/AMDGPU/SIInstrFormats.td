@@ -84,6 +84,10 @@ class InstSI <dag outs, dag ins, string asm = "",
   // Is it possible for this instruction to be atomic?
   field bit maybeAtomic = 0;
 
+  // Is this instruction a source of divergence, i.e., can it write divergent
+  // values even when all sources are uniform?
+  field bit isSourceOfDivergence = 0;
+
   // This bit indicates that this is a VI instruction which is renamed
   // in GFX9. Required for correct mapping from pseudo to MC.
   field bit renamedInGFX9 = 0;
@@ -196,6 +200,8 @@ class InstSI <dag outs, dag ins, string asm = "",
   let TSFlags{54} = IsMAI;
 
   let TSFlags{55} = IsDOT;
+
+  let TSFlags{56} = isSourceOfDivergence;
 
   let SchedRW = [Write32Bit];
 
