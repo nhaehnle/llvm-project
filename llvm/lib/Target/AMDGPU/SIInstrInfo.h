@@ -1050,6 +1050,9 @@ public:
   unsigned getInstrLatency(const InstrItineraryData *ItinData,
                            const MachineInstr &MI,
                            unsigned *PredCost = nullptr) const override;
+
+  InstructionUniformity getInstructionUniformity(
+      const MachineInstr &MI) const override final;
 };
 
 /// \brief Returns true if a reg:subreg pair P has a TRC class
