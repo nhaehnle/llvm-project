@@ -36,7 +36,7 @@ namespace llvm {
 class Argument;
 class BasicBlock;
 class BranchProbabilityInfo;
-class LegacyDivergenceAnalysis;
+class IDivergenceAnalysis;
 class Function;
 class Instruction;
 class MachineFunction;
@@ -57,7 +57,7 @@ public:
   const TargetLowering *TLI;
   MachineRegisterInfo *RegInfo;
   BranchProbabilityInfo *BPI;
-  const LegacyDivergenceAnalysis *DA;
+  const IDivergenceAnalysis *DA;
   /// CanLowerReturn - true iff the function's return value can be lowered to
   /// registers.
   bool CanLowerReturn;
