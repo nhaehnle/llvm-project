@@ -18,10 +18,40 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/iterator.h"
-#include "llvm/Support/GenericIteratedDominanceFrontier.h"
+#include "llvm/Support/CfgTraits.h"
 #include "llvm/Support/GenericDomTree.h"
 #include "llvm/Support/GenericDomTreeConstruction.h"
+#include "llvm/Support/GenericIteratedDominanceFrontier.h"
 #include "llvm/Support/raw_ostream.h"
+
+namespace clang {
+
+/// Partial CFG traits for MLIR's CFG, without a value type.
+class CfgTraitsBase : public llvm::CfgTraitsBase {
+public:
+  using ParentType = CFG;
+  using BlockRef = CFGBlock *;
+  using ValueRef = void;
+
+  static llvm::CfgBlockRef toGeneric(BlockRef block) {
+    return makeOpaque<llvm::CfgBlockRefTag>(block);
+  }
+  static BlockRef fromGeneric(llvm::CfgBlockRef block) {
+    return static_cast<BlockRef>(getOpaque(block));
+  }
+};
+
+class CfgTraits : public llvm::CfgTraits<CfgTraitsBase, CfgTraits> {
+  static ParentType *getBlockParent(CFGBlock *block) {
+    return block->getParent();
+  }
+};
+
+} // namespace clang
+
+template <> struct llvm::CfgTraitsFor<clang::CFGBlock> {
+  using CfgTraits = clang::CfgTraits;
+};
 
 // FIXME: There is no good reason for the domtree to require a print method
 // which accepts an LLVM Module, so remove this (and the method's argument that
