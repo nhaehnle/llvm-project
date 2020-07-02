@@ -335,6 +335,7 @@ public:
   using NodeType = NodeT;
   using NodePtr = NodeT *;
   using ParentPtr = decltype(std::declval<NodeT *>()->getParent());
+  using TreeNode = DomTreeNodeBase<NodeT>;
   static_assert(std::is_pointer<ParentPtr>::value,
                 "Currently NodeT's parent must be a pointer type");
   using ParentType = std::remove_pointer_t<ParentPtr>;
@@ -401,16 +402,13 @@ public:
   /// block.  This is the same as using operator[] on this class.  The result
   /// may (but is not required to) be null for a forward (backwards)
   /// statically unreachable block.
-  DomTreeNodeBase<NodeT> *getNode(const NodeT *BB) const {
-    return static_cast<DomTreeNodeBase<NodeT> *>(
-        GenericDominatorTreeBase::getNode(
-            Wrapper::wrapRef(const_cast<NodeT *>(BB))));
+  TreeNode *getNode(const NodeT *BB) const {
+    return static_cast<TreeNode *>(GenericDominatorTreeBase::getNode(
+        Wrapper::wrapRef(const_cast<NodeT *>(BB))));
   }
 
   /// See getNode.
-  DomTreeNodeBase<NodeT> *operator[](const NodeT *BB) const {
-    return getNode(BB);
-  }
+  TreeNode *operator[](const NodeT *BB) const { return getNode(BB); }
 
   /// getRootNode - This returns the entry node for the CFG of the function.  If
   /// this tree represents the post-dominance relations for a function, however,
@@ -419,31 +417,28 @@ public:
   /// post-dominance information must be capable of dealing with this
   /// possibility.
   ///
-  DomTreeNodeBase<NodeT> *getRootNode() {
-    return static_cast<DomTreeNodeBase<NodeT> *>(RootNode);
-  }
-  const DomTreeNodeBase<NodeT> *getRootNode() const {
-    return static_cast<const DomTreeNodeBase<NodeT> *>(RootNode);
+  TreeNode *getRootNode() { return static_cast<TreeNode *>(RootNode); }
+  const TreeNode *getRootNode() const {
+    return static_cast<const TreeNode *>(RootNode);
   }
 
   /// Get all nodes dominated by R, including R itself.
   void getDescendants(NodeT *R, SmallVectorImpl<NodeT *> &Result) const {
     Result.clear();
-    const DomTreeNodeBase<NodeT> *RN = getNode(R);
+    const TreeNode *RN = getNode(R);
     if (!RN)
       return; // If R is unreachable, it will not be present in the DOM tree.
-    SmallVector<const DomTreeNodeBase<NodeT> *, 8> WL;
+    SmallVector<const TreeNode *, 8> WL;
     WL.push_back(RN);
 
     while (!WL.empty()) {
-      const DomTreeNodeBase<NodeT> *N = WL.pop_back_val();
+      const TreeNode *N = WL.pop_back_val();
       Result.push_back(N->getBlock());
       WL.append(N->begin(), N->end());
     }
   }
 
-  bool properlyDominates(const DomTreeNodeBase<NodeT> *A,
-                         const DomTreeNodeBase<NodeT> *B) const {
+  bool properlyDominates(const TreeNode *A, const TreeNode *B) const {
     return GenericDominatorTreeBase::properlyDominates(A, B);
   }
   bool properlyDominates(const NodeT *A, const NodeT *B) const {
@@ -459,12 +454,9 @@ public:
            "This is not implemented for post dominators");
     return getNode(const_cast<NodeT *>(A)) != nullptr;
   }
-  bool isReachableFromEntry(const DomTreeNodeBase<NodeT> *A) const {
-    return A != nullptr;
-  }
+  bool isReachableFromEntry(const TreeNode *A) const { return A != nullptr; }
 
-  bool dominates(const DomTreeNodeBase<NodeT> *A,
-                 const DomTreeNodeBase<NodeT> *B) const {
+  bool dominates(const TreeNode *A, const TreeNode *B) const {
     return GenericDominatorTreeBase::dominates(A, B);
   }
   bool dominates(const NodeT *A, const NodeT *B) const {
@@ -478,31 +470,28 @@ public:
     return this->Roots[0];
   }
 
-  bool isVirtualRoot(const DomTreeNodeBase<NodeT> *A) const {
+  bool isVirtualRoot(const TreeNode *A) const {
     return isPostDominator() && !A->getBlock();
   }
 
-  const DomTreeNodeBase<NodeT> *
-  findNearestCommonDominator(const DomTreeNodeBase<NodeT> *A,
-                             const DomTreeNodeBase<NodeT> *B) const {
-    return static_cast<const DomTreeNodeBase<NodeT> *>(
+  const TreeNode *findNearestCommonDominator(const TreeNode *A,
+                                             const TreeNode *B) const {
+    return static_cast<const TreeNode *>(
         GenericDominatorTreeBase::findNearestCommonDominator(A, B));
   }
   const NodeT *findNearestCommonDominator(const NodeT *A,
                                           const NodeT *B) const {
     assert(A && B && "Pointers are not valid");
-    const DomTreeNodeBase<NodeT> *dom =
-        static_cast<const DomTreeNodeBase<NodeT> *>(
-            GenericDominatorTreeBase::findNearestCommonDominator(getNode(A),
-                                                                 getNode(B)));
+    const TreeNode *dom = static_cast<const TreeNode *>(
+        GenericDominatorTreeBase::findNearestCommonDominator(getNode(A),
+                                                             getNode(B)));
     return dom->getBlock();
   }
   NodeT *findNearestCommonDominator(NodeT *A, NodeT *B) const {
     assert(A && B && "Pointers are not valid");
-    const DomTreeNodeBase<NodeT> *dom =
-        static_cast<const DomTreeNodeBase<NodeT> *>(
-            GenericDominatorTreeBase::findNearestCommonDominator(getNode(A),
-                                                                 getNode(B)));
+    const TreeNode *dom = static_cast<const TreeNode *>(
+        GenericDominatorTreeBase::findNearestCommonDominator(getNode(A),
+                                                             getNode(B)));
     return dom->getBlock();
   }
 
@@ -614,9 +603,9 @@ public:
   /// \param DomBB CFG node that is dominator for BB.
   /// \returns New dominator tree node that represents new CFG node.
   ///
-  DomTreeNodeBase<NodeT> *addNewBlock(NodeT *BB, NodeT *DomBB) {
+  TreeNode *addNewBlock(NodeT *BB, NodeT *DomBB) {
     assert(getNode(BB) == nullptr && "Block already in dominator tree!");
-    DomTreeNodeBase<NodeT> *IDomNode = getNode(DomBB);
+    TreeNode *IDomNode = getNode(DomBB);
     assert(IDomNode && "Not immediate dominator specified for block!");
     DFSInfoValid = false;
     return createChild(BB, IDomNode);
@@ -627,7 +616,7 @@ public:
   /// \param BB New node in CFG.
   /// \returns New dominator tree node that represents new CFG node.
   ///
-  DomTreeNodeBase<NodeT> *setNewRoot(NodeT *BB) {
+  TreeNode *setNewRoot(NodeT *BB) {
     assert(getNode(BB) == nullptr && "Block already in dominator tree!");
     assert(!this->isPostDominator() &&
            "Cannot change root of post-dominator tree");
@@ -645,14 +634,13 @@ public:
       Roots[0] = BB;
     }
     RootNode = NewNode;
-    return static_cast<DomTreeNodeBase<NodeT> *>(RootNode);
+    return static_cast<TreeNode *>(RootNode);
   }
 
   /// changeImmediateDominator - This method is used to update the dominator
   /// tree information when a node's immediate dominator changes.
   ///
-  void changeImmediateDominator(DomTreeNodeBase<NodeT> *N,
-                                DomTreeNodeBase<NodeT> *NewIDom) {
+  void changeImmediateDominator(TreeNode *N, TreeNode *NewIDom) {
     assert(N && NewIDom && "Cannot change null node pointers!");
     DFSInfoValid = false;
     N->setIDom(NewIDom);
@@ -666,14 +654,14 @@ public:
   /// dominate any other blocks. Removes node from its immediate dominator's
   /// children list. Deletes dominator node associated with basic block BB.
   void eraseNode(NodeT *BB) {
-    DomTreeNodeBase<NodeT> *Node = getNode(BB);
+    TreeNode *Node = getNode(BB);
     assert(Node && "Removing node that isn't in dominator tree.");
     assert(Node->isLeaf() && "Node is not a leaf node.");
 
     DFSInfoValid = false;
 
     // Remove node from immediate dominator's children list.
-    DomTreeNodeBase<NodeT> *IDom = Node->getIDom();
+    TreeNode *IDom = Node->getIDom();
     if (IDom) {
       const auto I = find(IDom->Children, Node);
       assert(I != IDom->Children.end() &&
@@ -764,17 +752,17 @@ public:
 protected:
   void addRoot(NodeT *BB) { this->Roots.push_back(BB); }
 
-  DomTreeNodeBase<NodeT> *createChild(NodeT *BB, DomTreeNodeBase<NodeT> *IDom) {
+  TreeNode *createChild(NodeT *BB, TreeNode *IDom) {
     BlockHandle bbRef = Wrapper::wrapRef(BB);
-    return static_cast<DomTreeNodeBase<NodeT> *>(
+    return static_cast<TreeNode *>(
         (DomTreeNodes[bbRef] = IDom->addChild(
              std::make_unique<GenericDomTreeNodeBase>(bbRef, IDom)))
             .get());
   }
 
-  DomTreeNodeBase<NodeT> *createNode(NodeT *BB) {
+  TreeNode *createNode(NodeT *BB) {
     BlockHandle bbRef = Wrapper::wrapRef(BB);
-    return static_cast<DomTreeNodeBase<NodeT> *>(
+    return static_cast<TreeNode *>(
         (DomTreeNodes[bbRef] =
              std::make_unique<GenericDomTreeNodeBase>(bbRef, nullptr))
             .get());
@@ -827,12 +815,12 @@ protected:
     }
 
     // Create the new dominator tree node... and set the idom of NewBB.
-    DomTreeNodeBase<NodeT> *NewBBNode = addNewBlock(NewBB, NewBBIDom);
+    TreeNode *NewBBNode = addNewBlock(NewBB, NewBBIDom);
 
     // If NewBB strictly dominates other blocks, then it is now the immediate
     // dominator of NewBBSucc.  Update the dominator tree as appropriate.
     if (NewBBDominatesNewBBSucc) {
-      DomTreeNodeBase<NodeT> *NewBBSuccNode = getNode(NewBBSucc);
+      TreeNode *NewBBSuccNode = getNode(NewBBSucc);
       changeImmediateDominator(NewBBSuccNode, NewBBNode);
     }
   }
