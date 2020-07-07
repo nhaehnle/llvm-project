@@ -72,8 +72,8 @@ protected:
   mutable unsigned DFSNumOut = ~0;
 
 public:
-  GenericDomTreeNodeBase(CfgBlockRef BB, GenericDomTreeNodeBase *iDom)
-      : TheBB(BB), IDom(iDom), Level(IDom ? IDom->Level + 1 : 0) {}
+  GenericDomTreeNodeBase(CfgBlockRef BB, GenericDomTreeNodeBase *idom)
+      : TheBB(BB), IDom(idom), Level(IDom ? IDom->Level + 1 : 0) {}
 
   using iterator = typename std::vector<GenericDomTreeNodeBase *>::iterator;
   using const_iterator =
