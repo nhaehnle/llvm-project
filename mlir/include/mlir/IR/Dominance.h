@@ -31,7 +31,16 @@ public:
 };
 
 class CfgTraits : public llvm::CfgTraits<CfgTraitsBase, CfgTraits> {
+public:
   static Region *getBlockParent(Block *block) { return block->getParent(); }
+
+  static auto predecessors(Block *block) {
+    return llvm::inverse_children<Block *>(block);
+  }
+
+  static auto successors(Block *block) {
+    return llvm::children<Block *>(block);
+  }
 };
 
 } // namespace mlir

@@ -38,8 +38,17 @@ public:
 };
 
 class VPCfgTraits : public CfgTraits<VPCfgTraitsBase, VPCfgTraits> {
+public:
   static VPRegionBlock *getBlockParent(VPBlockBase *block) {
     return block->getParent();
+  }
+
+  static auto predecessors(VPBlockBase *block) {
+    return llvm::inverse_children<VPBlockBase *>(block);
+  }
+
+  static auto successors(VPBlockBase *block) {
+    return llvm::children<VPBlockBase *>(block);
   }
 };
 

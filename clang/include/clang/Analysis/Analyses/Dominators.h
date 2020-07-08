@@ -42,8 +42,65 @@ public:
 };
 
 class CfgTraits : public llvm::CfgTraits<CfgTraitsBase, CfgTraits> {
+public:
   static ParentType *getBlockParent(CFGBlock *block) {
     return block->getParent();
+  }
+
+  // Clang's CFG contains nullpointers for unreachable succesors, e.g. when an
+  // if statement's condition is always false, it's 'then' branch is represented
+  // with a nullptr. Account for this in the predecessors / successors
+  // iteration.
+  template <typename BaseIteratorT> struct skip_null_iterator;
+
+  template <typename BaseIteratorT>
+  using skip_null_iterator_base =
+      llvm::iterator_adaptor_base<skip_null_iterator<BaseIteratorT>,
+                                  BaseIteratorT,
+                                  std::bidirectional_iterator_tag>;
+
+  template <typename BaseIteratorT>
+  struct skip_null_iterator : skip_null_iterator_base<BaseIteratorT> {
+    using Base = skip_null_iterator_base<BaseIteratorT>;
+
+    skip_null_iterator() = default;
+    skip_null_iterator(BaseIteratorT it, BaseIteratorT end)
+        : Base(it), m_end(end) { forward(); }
+
+    skip_null_iterator &operator++() {
+      ++this->I;
+      forward();
+      return *this;
+    }
+
+    skip_null_iterator &operator--() {
+      do {
+        --this->I;
+      } while (!*this->I);
+      return *this;
+    }
+
+  private:
+    BaseIteratorT m_end;
+
+    void forward() {
+      while (this->I != m_end && !*this->I)
+        ++this->I;
+    }
+  };
+
+  static auto predecessors(CFGBlock *block) {
+    auto range = llvm::inverse_children<CFGBlock *>(block);
+    using iterator = skip_null_iterator<decltype(range.begin())>;
+    return llvm::make_range(iterator(range.begin(), range.end()),
+                            iterator(range.end(), range.end()));
+  }
+
+  static auto successors(CFGBlock *block) {
+    auto range = llvm::children<CFGBlock *>(block);
+    using iterator = skip_null_iterator<decltype(range.begin())>;
+    return llvm::make_range(iterator(range.begin(), range.end()),
+                            iterator(range.end(), range.end()));
   }
 };
 
