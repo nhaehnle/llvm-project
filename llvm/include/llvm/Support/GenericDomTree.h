@@ -52,6 +52,7 @@ template <typename NodeT, bool IsPostDom>
 class DominatorTreeBase;
 
 namespace DomTreeBuilder {
+struct GenericSemiNCAInfo;
 template <typename DomTreeT>
 struct SemiNCAInfo;
 }  // namespace DomTreeBuilder
@@ -62,6 +63,7 @@ class GenericDomTreeNodeBase {
   friend GenericDominatorTreeBase;
   template <typename NodeT, bool IsPostDom> friend class DominatorTreeBase;
   template <typename DomTreeT> friend struct DomTreeBuilder::SemiNCAInfo;
+  friend struct DomTreeBuilder::GenericSemiNCAInfo;
 
 protected:
   CfgBlockRef TheBB;
@@ -231,6 +233,8 @@ bool Verify(const DomTreeT &DT, typename DomTreeT::VerificationLevel VL);
 /// This base class of all dominator trees can be used for read-only queries
 /// on a dominator tree.
 class GenericDominatorTreeBase {
+  friend struct DomTreeBuilder::GenericSemiNCAInfo;
+
 protected:
   DenseMap<CfgBlockRef, std::unique_ptr<GenericDomTreeNodeBase>> DomTreeNodes;
   GenericDomTreeNodeBase *RootNode = nullptr;
@@ -311,6 +315,15 @@ public:
                      const GenericDomTreeNodeBase *Uncle) const;
 
   void updateDFSNumbers() const;
+
+protected:
+  GenericDomTreeNodeBase *createChild(CfgBlockRef bb,
+                                      GenericDomTreeNodeBase *idom) {
+    return
+        (DomTreeNodes[bb] = idom->addChild(
+             std::make_unique<GenericDomTreeNodeBase>(bb, idom)))
+            .get();
+  }
 
 private:
   /// Wipe this tree's state without releasing any resources.
@@ -740,9 +753,7 @@ protected:
   TreeNode *createChild(NodeT *BB, TreeNode *IDom) {
     CfgBlockRef bbRef = CfgTraits::toGeneric(BB);
     return static_cast<TreeNode *>(
-        (DomTreeNodes[bbRef] = IDom->addChild(
-             std::make_unique<GenericDomTreeNodeBase>(bbRef, IDom)))
-            .get());
+        GenericDominatorTreeBase::createChild(bbRef, IDom));
   }
 
   TreeNode *createNode(NodeT *BB) {
