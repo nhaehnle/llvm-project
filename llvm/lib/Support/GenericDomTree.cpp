@@ -75,7 +75,15 @@ void GenericDomTreeNodeBase::UpdateLevel() {
 /// dominator tree base. Otherwise return true.
 bool GenericDominatorTreeBase::compare(
     const GenericDominatorTreeBase &Other) const {
+  if (Parent != Other.Parent) return true;
+
+  if (Roots.size() != Other.Roots.size())
+    return true;
+
   if (DomTreeNodes.size() != Other.DomTreeNodes.size())
+    return true;
+
+  if (!std::is_permutation(Roots.begin(), Roots.end(), Other.Roots.begin()))
     return true;
 
   for (const auto &DomTreeNode : DomTreeNodes) {
@@ -97,6 +105,8 @@ bool GenericDominatorTreeBase::compare(
 void GenericDominatorTreeBase::reset() {
   DomTreeNodes.clear();
   RootNode = nullptr;
+  Roots.clear();
+  Parent = {};
   DFSInfoValid = false;
   SlowQueries = 0;
 }
@@ -294,4 +304,25 @@ bool GenericDominatorTreeBase::dominatedBySlowTreeWalk(
     B = IDom; // Walk up the tree
 
   return B == A;
+}
+
+GenericDomTreeNodeBase *GenericDominatorTreeBase::setNewRoot(CfgBlockRef bb) {
+  assert(!this->isPostDominator() &&
+         "Cannot change root of post-dominator tree");
+  assert(getNode(bb) == nullptr && "Block already in dominator tree!");
+  DFSInfoValid = false;
+  GenericDomTreeNodeBase *NewNode = createNode(bb);
+  if (Roots.empty()) {
+    addRoot(bb);
+  } else {
+    assert(Roots.size() == 1);
+    CfgBlockRef OldRoot = Roots.front();
+    auto &OldNode = DomTreeNodes[OldRoot];
+    OldNode = NewNode->addChild(std::move(OldNode));
+    OldNode->IDom = NewNode;
+    OldNode->UpdateLevel();
+    Roots[0] = bb;
+  }
+  RootNode = NewNode;
+  return RootNode;
 }

@@ -239,6 +239,11 @@ protected:
   DenseMap<CfgBlockRef, std::unique_ptr<GenericDomTreeNodeBase>> DomTreeNodes;
   GenericDomTreeNodeBase *RootNode = nullptr;
 
+  // Dominators always have a single root, postdominators can have more.
+  SmallVector<CfgBlockRef, 1> Roots;
+  CfgParentRef Parent;
+
+  const bool IsPostDominator;
   mutable bool DFSInfoValid = false;
   mutable unsigned int SlowQueries = 0;
 
@@ -248,17 +253,23 @@ protected:
   operator=(const GenericDominatorTreeBase &) = delete;
 
 public:
-  GenericDominatorTreeBase() {}
+  explicit GenericDominatorTreeBase(bool isPostDom)
+      : IsPostDominator(isPostDom) {}
 
   GenericDominatorTreeBase(GenericDominatorTreeBase &&Arg)
       : DomTreeNodes(std::move(Arg.DomTreeNodes)), RootNode(Arg.RootNode),
+        Roots(std::move(Arg.Roots)), Parent(Arg.Parent),
+        IsPostDominator(Arg.IsPostDominator),
         DFSInfoValid(Arg.DFSInfoValid), SlowQueries(Arg.SlowQueries) {
     Arg.wipe();
   }
 
   GenericDominatorTreeBase &operator=(GenericDominatorTreeBase &&RHS) {
+    assert(IsPostDominator == RHS.IsPostDominator);
     DomTreeNodes = std::move(RHS.DomTreeNodes);
     RootNode = RHS.RootNode;
+    Roots = std::move(RHS.Roots);
+    Parent = RHS.Parent;
     DFSInfoValid = RHS.DFSInfoValid;
     SlowQueries = RHS.SlowQueries;
     RHS.wipe();
@@ -268,6 +279,9 @@ public:
   void reset();
 
   bool compare(const GenericDominatorTreeBase &Other) const;
+
+  /// isPostDominator - Returns true if analysis based on post-dominators.
+  bool isPostDominator() const { return IsPostDominator; }
 
   /// getNode - return the (Post)DominatorTree node for the specified basic
   /// block.  This is the same as using operator[] on this class.  The result
@@ -325,6 +339,17 @@ protected:
             .get();
   }
 
+  GenericDomTreeNodeBase *createNode(CfgBlockRef bb) {
+    return
+        (DomTreeNodes[bb] =
+             std::make_unique<GenericDomTreeNodeBase>(bb, nullptr))
+            .get();
+  }
+
+  void addRoot(CfgBlockRef bb) { this->Roots.push_back(bb); }
+
+  GenericDomTreeNodeBase *setNewRoot(CfgBlockRef bb);
+
 private:
   /// Wipe this tree's state without releasing any resources.
   ///
@@ -367,36 +392,22 @@ public:
   enum class VerificationLevel { Fast, Basic, Full };
 
 protected:
-  // Dominators always have a single root, postdominators can have more.
-  SmallVector<NodeT *, IsPostDom ? 4 : 1> Roots;
-  ParentPtr Parent = nullptr;
-
   friend struct DomTreeBuilder::SemiNCAInfo<DominatorTreeBase>;
 
 public:
-  DominatorTreeBase() {}
+  DominatorTreeBase() : GenericDominatorTreeBase(IsPostDom) {}
 
   /// Iteration over roots.
   ///
   /// This may include multiple blocks if we are computing post dominators.
   /// For forward dominators, this will always be a single block (the entry
   /// block).
-  using root_iterator = typename SmallVectorImpl<NodeT *>::iterator;
-  using const_root_iterator = typename SmallVectorImpl<NodeT *>::const_iterator;
-
-  root_iterator root_begin() { return Roots.begin(); }
-  const_root_iterator root_begin() const { return Roots.begin(); }
-  root_iterator root_end() { return Roots.end(); }
-  const_root_iterator root_end() const { return Roots.end(); }
+  auto root_begin() const { return CfgTraits::unwrapIterator(Roots.begin()); }
+  auto root_end() const { return CfgTraits::unwrapIterator(Roots.end()); }
 
   size_t root_size() const { return Roots.size(); }
 
-  iterator_range<root_iterator> roots() {
-    return make_range(root_begin(), root_end());
-  }
-  iterator_range<const_root_iterator> roots() const {
-    return make_range(root_begin(), root_end());
-  }
+  auto roots() const { return make_range(root_begin(), root_end()); }
 
   /// isPostDominator - Returns true if analysis based of postdoms
   ///
@@ -405,14 +416,6 @@ public:
   /// compare - Return false if the other dominator tree base matches this
   /// dominator tree base. Otherwise return true.
   bool compare(const DominatorTreeBase &Other) const {
-    if (Parent != Other.Parent) return true;
-
-    if (Roots.size() != Other.Roots.size())
-      return true;
-
-    if (!std::is_permutation(Roots.begin(), Roots.end(), Other.Roots.begin()))
-      return true;
-
     return GenericDominatorTreeBase::compare(Other);
   }
 
@@ -485,7 +488,7 @@ public:
 
   NodeT *getRoot() const {
     assert(this->Roots.size() == 1 && "Should always have entry node!");
-    return this->Roots[0];
+    return CfgTraits::fromGeneric(this->Roots[0]);
   }
 
   bool isVirtualRoot(const TreeNode *A) const {
@@ -615,24 +618,7 @@ public:
   /// \returns New dominator tree node that represents new CFG node.
   ///
   TreeNode *setNewRoot(NodeT *BB) {
-    assert(getNode(BB) == nullptr && "Block already in dominator tree!");
-    assert(!this->isPostDominator() &&
-           "Cannot change root of post-dominator tree");
-    DFSInfoValid = false;
-    DomTreeNodeBase<NodeT> *NewNode = createNode(BB);
-    if (Roots.empty()) {
-      addRoot(BB);
-    } else {
-      assert(Roots.size() == 1);
-      NodeT *OldRoot = Roots.front();
-      auto &OldNode = DomTreeNodes[CfgTraits::toGeneric(OldRoot)];
-      OldNode = NewNode->addChild(std::move(OldNode));
-      OldNode->IDom = NewNode;
-      OldNode->UpdateLevel();
-      Roots[0] = BB;
-    }
-    RootNode = NewNode;
-    return static_cast<TreeNode *>(RootNode);
+    return static_cast<TreeNode *>(GenericDominatorTreeBase::setNewRoot(CfgTraits::toGeneric(BB)));
   }
 
   /// changeImmediateDominator - This method is used to update the dominator
@@ -673,7 +659,7 @@ public:
     if (!IsPostDom) return;
 
     // Remember to update PostDominatorTree roots.
-    auto RIt = llvm::find(Roots, BB);
+    auto RIt = llvm::find(Roots, CfgTraits::toGeneric(BB));
     if (RIt != Roots.end()) {
       std::swap(*RIt, Roots.back());
       Roots.pop_back();
@@ -741,15 +727,7 @@ public:
     return DomTreeBuilder::Verify(*this, VL);
   }
 
-  void reset() {
-    GenericDominatorTreeBase::reset();
-    Roots.clear();
-    Parent = nullptr;
-  }
-
 protected:
-  void addRoot(NodeT *BB) { this->Roots.push_back(BB); }
-
   TreeNode *createChild(NodeT *BB, TreeNode *IDom) {
     CfgBlockRef bbRef = CfgTraits::toGeneric(BB);
     return static_cast<TreeNode *>(
@@ -759,9 +737,7 @@ protected:
   TreeNode *createNode(NodeT *BB) {
     CfgBlockRef bbRef = CfgTraits::toGeneric(BB);
     return static_cast<TreeNode *>(
-        (DomTreeNodes[bbRef] =
-             std::make_unique<GenericDomTreeNodeBase>(bbRef, nullptr))
-            .get());
+        GenericDominatorTreeBase::createNode(bbRef));
   }
 
   // NewBB is split and now it has one successor. Update dominator tree to

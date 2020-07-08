@@ -20,6 +20,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/PointerLikeTypeTraits.h"
 #include "llvm/Support/Printable.h"
 
 namespace llvm {
@@ -38,12 +39,17 @@ namespace llvm {
 template <typename Tag> class CfgOpaqueType {
   friend class CfgTraitsBase;
   friend struct DenseMapInfo<CfgOpaqueType<Tag>>;
+  friend struct PointerLikeTypeTraits<CfgOpaqueType<Tag>>;
   template <typename BaseTraits, typename FullTraits>
   friend class CfgTraits;
 
   void *ptr = nullptr;
 
-  explicit CfgOpaqueType(void *ptr) : ptr(ptr) {}
+  explicit CfgOpaqueType(void *ptr) : ptr(ptr) {
+    assert((reinterpret_cast<uintptr_t>(ptr) &
+               ((1 << Tag::NumLowBitsAvailable) - 1)) == 0);
+  }
+  CfgOpaqueType(void *ptr, bool) : ptr(ptr) {}
   void *get() const { return ptr; }
 
 public:
@@ -60,12 +66,12 @@ template <typename Tag> struct DenseMapInfo<CfgOpaqueType<Tag>> {
 
   static Type getEmptyKey() {
     uintptr_t val = static_cast<uintptr_t>(-1);
-    return Type(reinterpret_cast<void *>(val));
+    return Type(reinterpret_cast<void *>(val), true);
   }
 
   static Type getTombstoneKey() {
     uintptr_t val = static_cast<uintptr_t>(-2);
-    return Type(reinterpret_cast<void *>(val));
+    return Type(reinterpret_cast<void *>(val), true);
   }
 
   static unsigned getHashValue(Type val) {
@@ -74,14 +80,35 @@ template <typename Tag> struct DenseMapInfo<CfgOpaqueType<Tag>> {
   static bool isEqual(Type lhs, Type rhs) { return lhs == rhs; }
 };
 
-class CfgParentRefTag;
+struct CfgParentRefTag {
+  static constexpr int NumLowBitsAvailable = 2;
+};
 using CfgParentRef = CfgOpaqueType<CfgParentRefTag>;
 
-class CfgBlockRefTag;
+struct CfgBlockRefTag {
+  static constexpr int NumLowBitsAvailable = 2;
+};
 using CfgBlockRef = CfgOpaqueType<CfgBlockRefTag>;
 
-class CfgValueRefTag;
+struct CfgValueRefTag {
+  // Cannot raise this, since mlir::Value is internally already a
+  // PointerIntPair.
+  static constexpr int NumLowBitsAvailable = 0;
+};
 using CfgValueRef = CfgOpaqueType<CfgValueRefTag>;
+
+// Implement PointerLikeTypeTraits to allow CfgParentRef and CfgBlockref to be
+// used in a PointerIntPair.
+template <typename Tag>
+struct PointerLikeTypeTraits<CfgOpaqueType<Tag>> {
+  static void *getAsVoidPointer(CfgOpaqueType<Tag> p) {
+    return p.get();
+  }
+  static CfgOpaqueType<Tag> getFromVoidPointer(void *p) {
+    return CfgOpaqueType<Tag>(p);
+  }
+  static constexpr int NumLowBitsAvailable = Tag::NumLowBitsAvailable;
+};
 
 /// \brief Base class for CFG traits
 ///
@@ -145,6 +172,9 @@ public:
 
   // Find the parent for a given block.
   //   static ParentType *getBlockParent(BlockRef block);
+
+  // Find the entry block of a given parent.
+  //   static BlockRef getEntryBlock(ParentType *parent);
 
   // Iterate over blocks in the CFG containing the given block in an arbitrary
   // order (start with entry block, return a range of iterators dereferencing
@@ -287,6 +317,7 @@ public:
   /// explicitly pass a CfgPrinter where possible.
   virtual std::unique_ptr<CfgPrinter> makePrinter() const = 0;
 
+  virtual CfgBlockRef getEntryBlock(CfgParentRef parent) const = 0;
   virtual CfgParentRef getBlockParent(CfgBlockRef block) const = 0;
 
   virtual void appendBlocks(CfgParentRef parent,
@@ -363,6 +394,10 @@ public:
     return std::make_unique<CfgPrinterImpl<CfgTraits>>(*this);
   }
 
+  CfgBlockRef getEntryBlock(CfgParentRef parent) const final {
+    return CfgTraits::toGeneric(
+        CfgTraits::getEntryBlock(CfgTraits::fromGeneric(parent)));
+  }
   CfgParentRef getBlockParent(CfgBlockRef block) const final {
     return CfgTraits::toGeneric(
         CfgTraits::getBlockParent(CfgTraits::fromGeneric(block)));

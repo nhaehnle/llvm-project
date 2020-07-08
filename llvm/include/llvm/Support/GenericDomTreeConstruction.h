@@ -56,7 +56,6 @@ struct SemiNCAInfo {
   using CfgTraits = typename DomTreeT::CfgTraits;
   using BlockRef = typename CfgTraits::BlockRef;
   using NodePtr = typename DomTreeT::NodePtr;
-  using NodeT = typename DomTreeT::NodeType;
   using TreeNodePtr = typename DomTreeT::TreeNode *;
   using RootsT = decltype(DomTreeT::Roots);
   static constexpr bool IsPostDom = DomTreeT::IsPostDominator;

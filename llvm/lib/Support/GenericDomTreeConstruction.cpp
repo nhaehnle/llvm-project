@@ -1545,6 +1545,8 @@ struct GenericSemiNCAInfo {
 } // namespace DomTreeBuilder
 } // namespace llvm
 
+#endif
+
 void GenericSemiNCAInfo::clear() {
   NumToNode = {{}}; // Restore to initial state with a dummy start node.
   NodeToInfo.clear();
@@ -1569,5 +1571,3 @@ GenericSemiNCAInfo::getNodeForBlock(CfgBlockRef bb,
   // IDomNode
   return domTree.createChild(bb, IDomNode);
 }
-
-#endif

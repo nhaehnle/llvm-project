@@ -101,6 +101,7 @@ add_llvm_component_library(LLVMSupport
   FormattedStream.cpp
   FormatVariadic.cpp
   GenericDomTree.cpp
+  GenericDomTreeConstruction.cpp
   GlobPattern.cpp
   GraphWriter.cpp
   Hashing.cpp
