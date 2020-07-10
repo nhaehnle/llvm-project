@@ -272,7 +272,7 @@ public:
   /// BlockRef or ValueRef.
   template <typename RangeT> static auto unwrapRange(RangeT range) {
     return llvm::make_range(unwrapIterator(range.begin()),
-                            unwrapIterator(range.end));
+                            unwrapIterator(range.end()));
   }
 
   /// Convert an iterator of BlockRef or ValueRef into an iterator of
@@ -285,7 +285,7 @@ public:
   /// CfgValueRef.
   template <typename RangeT> static auto wrapRange(RangeT range) {
     return llvm::make_range(wrapIterator(range.begin()),
-                            wrapIterator(range.end));
+                            wrapIterator(range.end()));
   }
 };
 
