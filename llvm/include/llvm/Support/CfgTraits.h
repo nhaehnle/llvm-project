@@ -233,7 +233,8 @@ public:
     using Base = unwrapping_iterator_base<BaseIteratorT>;
 
     unwrapping_iterator() = default;
-    explicit unwrapping_iterator(BaseIteratorT it) : Base(it) {}
+    explicit unwrapping_iterator(BaseIteratorT &&it)
+        : Base(std::forward<BaseIteratorT>(it)) {}
 
     auto operator*() const { return BaseTraits::fromGeneric(*this->I); }
   };
@@ -264,28 +265,28 @@ public:
 
   /// Convert an iterator of CfgBlockRef or CfgValueRef into an iterator of
   /// BlockRef or ValueRef.
-  template <typename IteratorT> static auto unwrapIterator(IteratorT it) {
-    return unwrapping_iterator<IteratorT>(it);
+  template <typename IteratorT> static auto unwrapIterator(IteratorT &&it) {
+    return unwrapping_iterator<IteratorT>(std::forward<IteratorT>(it));
   }
 
   /// Convert a range of CfgBlockRef or CfgValueRef into a range of
   /// BlockRef or ValueRef.
-  template <typename RangeT> static auto unwrapRange(RangeT range) {
-    return llvm::make_range(unwrapIterator(range.begin()),
-                            unwrapIterator(range.end()));
+  template <typename RangeT> static auto unwrapRange(RangeT &&range) {
+    return llvm::make_range(unwrapIterator(adl_begin(std::forward<RangeT>(range))),
+                            unwrapIterator(adl_end(std::forward<RangeT>(range))));
   }
 
   /// Convert an iterator of BlockRef or ValueRef into an iterator of
   /// CfgBlockRef or CfgValueRef.
-  template <typename IteratorT> static auto wrapIterator(IteratorT it) {
-    return wrapping_iterator<IteratorT>(it);
+  template <typename IteratorT> static auto wrapIterator(IteratorT &&it) {
+    return wrapping_iterator<IteratorT>(std::forward<IteratorT>(it));
   }
 
   /// Convert a range of BlockRef or ValueRef into a range of CfgBlockRef or
   /// CfgValueRef.
-  template <typename RangeT> static auto wrapRange(RangeT range) {
-    return llvm::make_range(wrapIterator(range.begin()),
-                            wrapIterator(range.end()));
+  template <typename RangeT> static auto wrapRange(RangeT &&range) {
+    return llvm::make_range(wrapIterator(adl_begin(std::forward<RangeT>(range))),
+                            wrapIterator(adl_end(std::forward<RangeT>(range))));
   }
 };
 
