@@ -71,6 +71,16 @@ void GenericDomTreeNodeBase::UpdateLevel() {
   }
 }
 
+void GenericDomTreeNodeBase::print(CfgPrinter &printer, raw_ostream &out) const {
+  if (getBlock())
+    printer.printBlockName(out, getBlock());
+  else
+    out << " <<exit node>>";
+
+  out << " {" << getDFSNumIn() << ',' << getDFSNumOut() << "} ["
+      << getLevel() << "]\n";
+}
+
 /// compare - Return false if the other dominator tree base matches this
 /// dominator tree base. Otherwise return true.
 bool GenericDominatorTreeBase::compare(
@@ -325,4 +335,34 @@ GenericDomTreeNodeBase *GenericDominatorTreeBase::setNewRoot(CfgBlockRef bb) {
   }
   RootNode = NewNode;
   return RootNode;
+}
+
+static void printDomTree(CfgPrinter &printer,
+                         const GenericDomTreeNodeBase *node, raw_ostream &out,
+                         unsigned level) {
+  out.indent(2 * level) << "[" << level<< "] ";
+  node->print(printer, out);
+  for (const auto *child : node->children())
+    printDomTree(printer, child, out, level + 1);
+}
+
+void GenericDominatorTreeBase::print(CfgPrinter &printer, raw_ostream &O) const {
+  O << "=============================--------------------------------\n";
+  if (isPostDominator())
+    O << "Inorder PostDominator Tree: ";
+  else
+    O << "Inorder Dominator Tree: ";
+  if (!DFSInfoValid)
+    O << "DFSNumbers invalid: " << SlowQueries << " slow queries.";
+  O << "\n";
+
+  // The postdom tree can have a null root if there are no returns.
+  if (getRootNode())
+    printDomTree(printer, getRootNode(), O, 1);
+  O << "Roots: ";
+  for (CfgBlockRef block : Roots) {
+    printer.printBlockName(O, block);
+    O << " ";
+  }
+  O << "\n";
 }

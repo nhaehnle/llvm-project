@@ -155,15 +155,15 @@ private:
         assert(llvm::is_contained(result, Child)
                && "Expected child not found in the CFG");
         result.erase(std::remove(result.begin(), result.end(), Child), result.end());
-        LLVM_DEBUG(dbgs() << "\tHiding edge " << BlockNamePrinter(node) << " -> "
-                          << BlockNamePrinter(Child) << "\n");
+        LLVM_DEBUG(dbgs() << "\tHiding edge " << BlockNamePrinter(iface, node) << " -> "
+                          << BlockNamePrinter(iface, Child) << "\n");
       } else {
         // If there's an deletion in the future, it means that the edge cannot
         // exist in the current CFG, but existed in it before.
         assert(!llvm::is_contained(result, Child) &&
                "Unexpected child found in the CFG");
-        LLVM_DEBUG(dbgs() << "\tShowing virtual edge " << BlockNamePrinter(node)
-                          << " -> " << BlockNamePrinter(Child) << "\n");
+        LLVM_DEBUG(dbgs() << "\tShowing virtual edge " << BlockNamePrinter(iface, node)
+                          << " -> " << BlockNamePrinter(iface, Child) << "\n");
         result.push_back(Child);
       }
     }
@@ -196,16 +196,19 @@ private:
   static bool AlwaysDescend(NodePtr, NodePtr) { return true; }
 
   struct BlockNamePrinter {
+    CfgInterface &m_iface;
     NodePtr N;
 
-    BlockNamePrinter(NodePtr Block) : N(Block) {}
-    BlockNamePrinter(TreeNodePtr TN) : N(TN ? TN->getBlock() : NodePtr{}) {}
+    BlockNamePrinter(CfgInterface &iface, NodePtr Block)
+        : m_iface(iface), N(Block) {}
+    BlockNamePrinter(CfgInterface &iface, TreeNodePtr TN)
+        : m_iface(iface), N(TN ? TN->getBlock() : NodePtr{}) {}
 
     friend raw_ostream &operator<<(raw_ostream &O, const BlockNamePrinter &BP) {
       if (!BP.N)
         O << "nullptr";
       else
-        BP.N->printAsOperand(O, false);
+        BP.m_iface.makePrinter()->printBlockName(O, BP.N);
 
       return O;
     }
@@ -415,10 +418,10 @@ private:
         Roots.push_back(N);
         // Run DFS not to walk this part of CFG later.
         Num = SNCA.runDFS(N, Num, AlwaysDescend, 1);
-        LLVM_DEBUG(dbgs() << "Found a new trivial root: " << BlockNamePrinter(N)
+        LLVM_DEBUG(dbgs() << "Found a new trivial root: " << BlockNamePrinter(iface, N)
                           << "\n");
         LLVM_DEBUG(dbgs() << "Last visited node: "
-                          << BlockNamePrinter(SNCA.NumToNode[Num]) << "\n");
+                          << BlockNamePrinter(iface, SNCA.NumToNode[Num]) << "\n");
       }
     }
 
@@ -443,7 +446,7 @@ private:
       for (const NodePtr I : blocks) {
         if (SNCA.NodeToInfo.count(I) == 0) {
           LLVM_DEBUG(dbgs()
-                     << "\t\t\tVisiting node " << BlockNamePrinter(I) << "\n");
+                     << "\t\t\tVisiting node " << BlockNamePrinter(iface, I) << "\n");
           // Find the furthest away we can get by following successors, then
           // follow them in reverse.  This gives us some reasonable answer about
           // the post-dom tree inside any infinite loop. In particular, it
@@ -460,7 +463,7 @@ private:
           const NodePtr FurthestAway = SNCA.NumToNode[NewNum];
           LLVM_DEBUG(dbgs() << "\t\t\tFound a new furthest away node "
                             << "(non-trivial root): "
-                            << BlockNamePrinter(FurthestAway) << "\n");
+                            << BlockNamePrinter(iface, FurthestAway) << "\n");
           ConnectToExitBlock.insert(FurthestAway);
           Roots.push_back(FurthestAway);
           LLVM_DEBUG(dbgs() << "\t\t\tPrev DFSNum: " << Num << ", new DFSNum: "
@@ -468,7 +471,7 @@ private:
           for (unsigned i = NewNum; i > Num; --i) {
             const NodePtr N = SNCA.NumToNode[i];
             LLVM_DEBUG(dbgs() << "\t\t\t\tRemoving DFS info for "
-                              << BlockNamePrinter(N) << "\n");
+                              << BlockNamePrinter(iface, N) << "\n");
             SNCA.NodeToInfo.erase(N);
             SNCA.NumToNode.pop_back();
           }
@@ -477,7 +480,7 @@ private:
           Num = SNCA.runDFS(FurthestAway, Num, AlwaysDescend, 1);
           for (unsigned i = PrevNum + 1; i <= Num; ++i)
             LLVM_DEBUG(dbgs() << "\t\t\t\tfound node "
-                              << BlockNamePrinter(SNCA.NumToNode[i]) << "\n");
+                              << BlockNamePrinter(iface, SNCA.NumToNode[i]) << "\n");
         }
       }
     }
@@ -485,7 +488,7 @@ private:
     LLVM_DEBUG(dbgs() << "Total: " << Total << ", Num: " << Num << "\n");
     LLVM_DEBUG(dbgs() << "Discovered CFG nodes:\n");
     LLVM_DEBUG(for (size_t i = 0; i <= Num; ++i) dbgs()
-               << i << ": " << BlockNamePrinter(SNCA.NumToNode[i]) << "\n");
+               << i << ": " << BlockNamePrinter(iface, SNCA.NumToNode[i]) << "\n");
 
     assert((Total + 1 == Num) && "Everything should have been visited");
 
@@ -494,7 +497,7 @@ private:
 
     LLVM_DEBUG(dbgs() << "Found roots: ");
     LLVM_DEBUG(for (CfgBlockRef Root : Roots) dbgs()
-               << BlockNamePrinter(Root) << " ");
+               << BlockNamePrinter(iface, Root) << " ");
     LLVM_DEBUG(dbgs() << "\n");
 
     return Roots;
@@ -520,7 +523,7 @@ private:
       // Trivial roots are always non-redundant.
       if (!HasForwardSuccessors(iface, Root, BUI)) continue;
       LLVM_DEBUG(dbgs() << "\tChecking if "
-                        << BlockNamePrinter(Root)
+                        << BlockNamePrinter(iface, Root)
                         << " remains a root\n");
       SNCA.clear();
       // Do a forward walk looking for the other roots.
@@ -534,8 +537,8 @@ private:
         // one.
         if (llvm::find(Roots, N) != Roots.end()) {
           LLVM_DEBUG(dbgs() << "\tForward DFS walk found another root "
-                            << BlockNamePrinter(N) << "\n\tRemoving root "
-                            << BlockNamePrinter(Root)
+                            << BlockNamePrinter(iface, N) << "\n\tRemoving root "
+                            << BlockNamePrinter(iface, Root)
                             << "\n");
           std::swap(Root, Roots.back());
           Roots.pop_back();
@@ -657,8 +660,8 @@ public:
     assert((From || DT.isPostDominator()) &&
            "From has to be a valid CFG node or a virtual root");
     assert(To && "Cannot be a nullptr");
-    LLVM_DEBUG(dbgs() << "Inserting edge " << BlockNamePrinter(From) << " -> "
-                      << BlockNamePrinter(To) << "\n");
+    LLVM_DEBUG(dbgs() << "Inserting edge " << BlockNamePrinter(iface, From) << " -> "
+                      << BlockNamePrinter(iface, To) << "\n");
     TreeNodePtr FromTN = DT.getNode(From);
 
     if (!FromTN) {
@@ -696,7 +699,7 @@ public:
     if (RIt == DT.Roots.end())
       return false;  // To is not a root, nothing to update.
 
-    LLVM_DEBUG(dbgs() << "\t\tAfter the insertion, " << BlockNamePrinter(To)
+    LLVM_DEBUG(dbgs() << "\t\tAfter the insertion, " << BlockNamePrinter(iface, To)
                       << " is no longer a root\n\t\tRebuilding the tree!!!\n");
 
     CalculateFromScratch(iface, DT, BUI);
@@ -747,8 +750,8 @@ public:
   static void InsertReachable(CfgInterface &iface, DomTreeT &DT,
                               const BatchUpdatePtr BUI,
                               const TreeNodePtr From, const TreeNodePtr To) {
-    LLVM_DEBUG(dbgs() << "\tReachable " << BlockNamePrinter(From->getBlock())
-                      << " -> " << BlockNamePrinter(To->getBlock()) << "\n");
+    LLVM_DEBUG(dbgs() << "\tReachable " << BlockNamePrinter(iface, From->getBlock())
+                      << " -> " << BlockNamePrinter(iface, To->getBlock()) << "\n");
     if (DT.isPostDominator() &&
         UpdateRootsBeforeInsertion(iface, DT, BUI, From, To))
       return;
@@ -763,7 +766,7 @@ public:
     const TreeNodePtr NCD = DT.getNode(NCDBlock);
     assert(NCD);
 
-    LLVM_DEBUG(dbgs() << "\t\tNCA == " << BlockNamePrinter(NCD) << "\n");
+    LLVM_DEBUG(dbgs() << "\t\tNCA == " << BlockNamePrinter(iface, NCD) << "\n");
     const unsigned NCDLevel = NCD->getLevel();
 
     // Based on Lemma 2.5 from [2], after insertion of (From,To), v is affected
@@ -790,7 +793,7 @@ public:
       II.Affected.push_back(TN);
 
       const unsigned CurrentLevel = TN->getLevel();
-      LLVM_DEBUG(dbgs() << "Mark " << BlockNamePrinter(TN) <<
+      LLVM_DEBUG(dbgs() << "Mark " << BlockNamePrinter(iface, TN) <<
                  "as affected, CurrentLevel " << CurrentLevel << "\n");
 
       assert(TN->getBlock() && II.Visited.count(TN) && "Preconditions!");
@@ -811,7 +814,7 @@ public:
                  "Unreachable successor found at reachable insertion");
           const unsigned SuccLevel = SuccTN->getLevel();
 
-          LLVM_DEBUG(dbgs() << "\tSuccessor " << BlockNamePrinter(Succ)
+          LLVM_DEBUG(dbgs() << "\tSuccessor " << BlockNamePrinter(iface, Succ)
                             << ", level = " << SuccLevel << "\n");
 
           // There is an optimal path from `To` to Succ with the minimum depth
@@ -828,7 +831,7 @@ public:
             // Succ is unaffected but it may (transitively) expand to affected
             // vertices. Store it in UnaffectedOnCurrentLevel.
             LLVM_DEBUG(dbgs() << "\t\tMarking visited not affected "
-                              << BlockNamePrinter(Succ) << "\n");
+                              << BlockNamePrinter(iface, Succ) << "\n");
             UnaffectedOnCurrentLevel.push_back(SuccTN);
 #ifndef NDEBUG
             II.VisitedUnaffected.push_back(SuccTN);
@@ -836,7 +839,7 @@ public:
           } else {
             // The condition is satisfied (Succ is affected). Add Succ to the
             // bucket queue.
-            LLVM_DEBUG(dbgs() << "\t\tAdd " << BlockNamePrinter(Succ)
+            LLVM_DEBUG(dbgs() << "\t\tAdd " << BlockNamePrinter(iface, Succ)
                               << " to a Bucket\n");
             II.Bucket.push(SuccTN);
           }
@@ -845,7 +848,7 @@ public:
         if (UnaffectedOnCurrentLevel.empty())
           break;
         TN = UnaffectedOnCurrentLevel.pop_back_val();
-        LLVM_DEBUG(dbgs() << " Next: " << BlockNamePrinter(TN) << "\n");
+        LLVM_DEBUG(dbgs() << " Next: " << BlockNamePrinter(iface, TN) << "\n");
       }
     }
 
@@ -857,11 +860,11 @@ public:
   static void UpdateInsertion(CfgInterface &iface, DomTreeT &DT,
                               const BatchUpdatePtr BUI,
                               const TreeNodePtr NCD, InsertionInfo &II) {
-    LLVM_DEBUG(dbgs() << "Updating NCD = " << BlockNamePrinter(NCD) << "\n");
+    LLVM_DEBUG(dbgs() << "Updating NCD = " << BlockNamePrinter(iface, NCD) << "\n");
 
     for (const TreeNodePtr TN : II.Affected) {
-      LLVM_DEBUG(dbgs() << "\tIDom(" << BlockNamePrinter(TN)
-                        << ") = " << BlockNamePrinter(NCD) << "\n");
+      LLVM_DEBUG(dbgs() << "\tIDom(" << BlockNamePrinter(iface, TN)
+                        << ") = " << BlockNamePrinter(iface, NCD) << "\n");
       TN->setIDom(NCD);
     }
 
@@ -879,24 +882,24 @@ public:
   static void InsertUnreachable(CfgInterface &iface, DomTreeT &DT,
                                 const BatchUpdatePtr BUI,
                                 const TreeNodePtr From, const NodePtr To) {
-    LLVM_DEBUG(dbgs() << "Inserting " << BlockNamePrinter(From)
-                      << " -> (unreachable) " << BlockNamePrinter(To) << "\n");
+    LLVM_DEBUG(dbgs() << "Inserting " << BlockNamePrinter(iface, From)
+                      << " -> (unreachable) " << BlockNamePrinter(iface, To) << "\n");
 
     // Collect discovered edges to already reachable nodes.
     SmallVector<std::pair<NodePtr, TreeNodePtr>, 8> DiscoveredEdgesToReachable;
     // Discover and connect nodes that became reachable with the insertion.
     ComputeUnreachableDominators(iface, DT, BUI, To, From, DiscoveredEdgesToReachable);
 
-    LLVM_DEBUG(dbgs() << "Inserted " << BlockNamePrinter(From)
-                      << " -> (prev unreachable) " << BlockNamePrinter(To)
+    LLVM_DEBUG(dbgs() << "Inserted " << BlockNamePrinter(iface, From)
+                      << " -> (prev unreachable) " << BlockNamePrinter(iface, To)
                       << "\n");
 
     // Used the discovered edges and inset discovered connecting (incoming)
     // edges.
     for (const auto &Edge : DiscoveredEdgesToReachable) {
       LLVM_DEBUG(dbgs() << "\tInserting discovered connecting edge "
-                        << BlockNamePrinter(Edge.first) << " -> "
-                        << BlockNamePrinter(Edge.second) << "\n");
+                        << BlockNamePrinter(iface, Edge.first) << " -> "
+                        << BlockNamePrinter(iface, Edge.second) << "\n");
       InsertReachable(iface, DT, BUI, DT.getNode(Edge.first), Edge.second);
     }
   }
@@ -932,8 +935,8 @@ public:
                          const BatchUpdatePtr BUI,
                          const NodePtr From, const NodePtr To) {
     assert(From && To && "Cannot disconnect nullptrs");
-    LLVM_DEBUG(dbgs() << "Deleting edge " << BlockNamePrinter(From) << " -> "
-                      << BlockNamePrinter(To) << "\n");
+    LLVM_DEBUG(dbgs() << "Deleting edge " << BlockNamePrinter(iface, From) << " -> "
+                      << BlockNamePrinter(iface, To) << "\n");
 
 #ifndef NDEBUG
     // Ensure that the edge was in fact deleted from the CFG before informing
@@ -956,7 +959,7 @@ public:
     const TreeNodePtr ToTN = DT.getNode(To);
     if (!ToTN) {
       LLVM_DEBUG(
-          dbgs() << "\tTo (" << BlockNamePrinter(To)
+          dbgs() << "\tTo (" << BlockNamePrinter(iface, To)
                  << ") already unreachable -- there is no edge to delete\n");
       return;
     }
@@ -969,8 +972,8 @@ public:
       DT.DFSInfoValid = false;
 
       const TreeNodePtr ToIDom = ToTN->getIDom();
-      LLVM_DEBUG(dbgs() << "\tNCD " << BlockNamePrinter(NCD) << ", ToIDom "
-                        << BlockNamePrinter(ToIDom) << "\n");
+      LLVM_DEBUG(dbgs() << "\tNCD " << BlockNamePrinter(iface, NCD) << ", ToIDom "
+                        << BlockNamePrinter(iface, ToIDom) << "\n");
 
       // To remains reachable after deletion.
       // (Based on the caption under Figure 4. from [2].)
@@ -989,8 +992,8 @@ public:
                               const BatchUpdatePtr BUI,
                               const TreeNodePtr FromTN,
                               const TreeNodePtr ToTN) {
-    LLVM_DEBUG(dbgs() << "Deleting reachable " << BlockNamePrinter(FromTN)
-                      << " -> " << BlockNamePrinter(ToTN) << "\n");
+    LLVM_DEBUG(dbgs() << "Deleting reachable " << BlockNamePrinter(iface, FromTN)
+                      << " -> " << BlockNamePrinter(iface, ToTN) << "\n");
     LLVM_DEBUG(dbgs() << "\tRebuilding subtree\n");
 
     // Find the top of the subtree that needs to be rebuilt.
@@ -1015,7 +1018,7 @@ public:
       return DT.getNode(To)->getLevel() > Level;
     };
 
-    LLVM_DEBUG(dbgs() << "\tTop of subtree: " << BlockNamePrinter(ToIDomTN)
+    LLVM_DEBUG(dbgs() << "\tTop of subtree: " << BlockNamePrinter(iface, ToIDomTN)
                       << "\n");
 
     GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), BUI);
@@ -1029,20 +1032,20 @@ public:
   // explained on the page 7 of [2].
   static bool HasProperSupport(CfgInterface &iface, DomTreeT &DT,
                                const BatchUpdatePtr BUI, const TreeNodePtr TN) {
-    LLVM_DEBUG(dbgs() << "IsReachableFromIDom " << BlockNamePrinter(TN)
+    LLVM_DEBUG(dbgs() << "IsReachableFromIDom " << BlockNamePrinter(iface, TN)
                       << "\n");
     for (const NodePtr Pred :
          getBlockChildren(iface, TN->getBlock(), !DT.isPostDominator(), BUI)) {
-      LLVM_DEBUG(dbgs() << "\tPred " << BlockNamePrinter(Pred) << "\n");
+      LLVM_DEBUG(dbgs() << "\tPred " << BlockNamePrinter(iface, Pred) << "\n");
       if (!DT.getNode(Pred)) continue;
 
       const NodePtr Support =
           DT.findNearestCommonDominatorBlock(TN->getBlock(), Pred);
-      LLVM_DEBUG(dbgs() << "\tSupport " << BlockNamePrinter(Support) << "\n");
+      LLVM_DEBUG(dbgs() << "\tSupport " << BlockNamePrinter(iface, Support) << "\n");
       if (Support != TN->getBlock()) {
-        LLVM_DEBUG(dbgs() << "\t" << BlockNamePrinter(TN)
+        LLVM_DEBUG(dbgs() << "\t" << BlockNamePrinter(iface, TN)
                           << " is reachable from support "
-                          << BlockNamePrinter(Support) << "\n");
+                          << BlockNamePrinter(iface, Support) << "\n");
         return true;
       }
     }
@@ -1056,7 +1059,7 @@ public:
                                 const BatchUpdatePtr BUI,
                                 const TreeNodePtr ToTN) {
     LLVM_DEBUG(dbgs() << "Deleting unreachable subtree "
-                      << BlockNamePrinter(ToTN) << "\n");
+                      << BlockNamePrinter(iface, ToTN) << "\n");
     assert(ToTN);
     assert(ToTN->getBlock());
 
@@ -1065,7 +1068,7 @@ public:
       // Simulate that by inserting an edge from the virtual root to ToTN and
       // adding it as a new root.
       LLVM_DEBUG(dbgs() << "\tDeletion made a region reverse-unreachable\n");
-      LLVM_DEBUG(dbgs() << "\tAdding new root " << BlockNamePrinter(ToTN)
+      LLVM_DEBUG(dbgs() << "\tAdding new root " << BlockNamePrinter(iface, ToTN)
                         << "\n");
       DT.Roots.push_back(ToTN->getBlock());
       InsertReachable(iface, DT, BUI, DT.getNode(NodePtr{}), ToTN);
@@ -1103,9 +1106,9 @@ public:
       const TreeNodePtr NCD = DT.getNode(NCDBlock);
       assert(NCD);
 
-      LLVM_DEBUG(dbgs() << "Processing affected node " << BlockNamePrinter(TN)
-                        << " with NCD = " << BlockNamePrinter(NCD)
-                        << ", MinNode =" << BlockNamePrinter(MinNode) << "\n");
+      LLVM_DEBUG(dbgs() << "Processing affected node " << BlockNamePrinter(iface, TN)
+                        << " with NCD = " << BlockNamePrinter(iface, NCD)
+                        << ", MinNode =" << BlockNamePrinter(iface, MinNode) << "\n");
       if (NCD != TN && NCD->getLevel() < MinNode->getLevel()) MinNode = NCD;
     }
 
@@ -1121,7 +1124,7 @@ public:
     for (unsigned i = LastDFSNum; i > 0; --i) {
       const NodePtr N = SNCA.NumToNode[i];
       const TreeNodePtr TN = DT.getNode(N);
-      LLVM_DEBUG(dbgs() << "Erasing node " << BlockNamePrinter(TN) << "\n");
+      LLVM_DEBUG(dbgs() << "Erasing node " << BlockNamePrinter(iface, TN) << "\n");
 
       EraseNode(DT, TN);
     }
@@ -1130,7 +1133,7 @@ public:
     if (MinNode == ToTN) return;
 
     LLVM_DEBUG(dbgs() << "DeleteUnreachable: running DFS with MinNode = "
-                      << BlockNamePrinter(MinNode) << "\n");
+                      << BlockNamePrinter(iface, MinNode) << "\n");
     const unsigned MinLevel = MinNode->getLevel();
     const TreeNodePtr PrevIDom = MinNode->getIDom();
     assert(PrevIDom);
@@ -1144,7 +1147,7 @@ public:
     SNCA.runDFS(MinNode->getBlock(), 0, DescendBelow, 0);
 
     LLVM_DEBUG(dbgs() << "Previous IDom(MinNode) = "
-                      << BlockNamePrinter(PrevIDom) << "\nRunning Semi-NCA\n");
+                      << BlockNamePrinter(iface, PrevIDom) << "\nRunning Semi-NCA\n");
 
     // Rebuild the remaining part of affected subtree.
     SNCA.runSemiNCA(DT, MinLevel);
@@ -1281,7 +1284,7 @@ public:
   // multiple roots - one for each node with no successors and for infinite
   // loops.
   // Running time: O(N).
-  bool verifyRoots(CfgInterface &iface, const DomTreeT &DT) {
+  bool verifyRoots(const DomTreeT &DT) {
     if (!DT.Parent && !DT.Roots.empty()) {
       errs() << "Tree has no parent but has roots!\n";
       errs().flush();
@@ -1296,22 +1299,22 @@ public:
       }
 
       assert(DT.Roots.size() == 1 && DT.Roots[0] == DT.RootNode->getBlock());
-      if (DT.Roots[0] != iface.getEntryBlock(DT.getParent())) {
+      if (DT.Roots[0] != m_iface.getEntryBlock(DT.getParent())) {
         errs() << "Tree's root is not its parent's entry node!\n";
         errs().flush();
         return false;
       }
     }
 
-    RootsT ComputedRoots = FindRoots(iface, DT, nullptr);
+    RootsT ComputedRoots = FindRoots(m_iface, DT, nullptr);
     if (!isPermutation(DT.Roots, ComputedRoots)) {
       errs() << "Tree has different roots than freshly computed ones!\n";
       errs() << "\tPDT roots: ";
       for (const NodePtr N : DT.Roots)
-        errs() << BlockNamePrinter(N) << ", ";
+        errs() << BlockNamePrinter(m_iface, N) << ", ";
       errs() << "\n\tComputed roots: ";
       for (const NodePtr N : ComputedRoots)
-        errs() << BlockNamePrinter(N) << ", ";
+        errs() << BlockNamePrinter(m_iface, N) << ", ";
       errs() << "\n";
       errs().flush();
       return false;
@@ -1327,15 +1330,14 @@ public:
     doFullDFSWalk(DT, AlwaysDescend);
 
     for (auto &NodeToTN : DT.DomTreeNodes) {
-      const TreeNodePtr TN =
-          static_cast<const TreeNodePtr>(NodeToTN.second.get());
+      const TreeNodePtr TN = NodeToTN.second.get();
       const NodePtr BB = TN->getBlock();
 
       // Virtual root has a corresponding virtual CFG node.
       if (DT.isVirtualRoot(TN)) continue;
 
       if (NodeToInfo.count(BB) == 0) {
-        errs() << "DomTree node " << BlockNamePrinter(BB)
+        errs() << "DomTree node " << BlockNamePrinter(m_iface, BB)
                << " not found by DFS walk!\n";
         errs().flush();
 
@@ -1345,7 +1347,7 @@ public:
 
     for (const NodePtr N : NumToNode) {
       if (N && !DT.getNode(N)) {
-        errs() << "CFG node " << BlockNamePrinter(N)
+        errs() << "CFG node " << BlockNamePrinter(m_iface, N)
                << " not found in the DomTree!\n";
         errs().flush();
 
@@ -1359,16 +1361,15 @@ public:
   // Check if for every parent with a level L in the tree all of its children
   // have level L + 1.
   // Running time: O(N).
-  static bool VerifyLevels(const DomTreeT &DT) {
+  static bool VerifyLevels(CfgInterface &iface, const DomTreeT &DT) {
     for (auto &NodeToTN : DT.DomTreeNodes) {
-      const TreeNodePtr TN =
-          static_cast<const TreeNodePtr>(NodeToTN.second.get());
+      const TreeNodePtr TN = NodeToTN.second.get();
       const NodePtr BB = TN->getBlock();
       if (!BB) continue;
 
       const TreeNodePtr IDom = TN->getIDom();
       if (!IDom && TN->getLevel() != 0) {
-        errs() << "Node without an IDom " << BlockNamePrinter(BB)
+        errs() << "Node without an IDom " << BlockNamePrinter(iface, BB)
                << " has a nonzero level " << TN->getLevel() << "!\n";
         errs().flush();
 
@@ -1376,9 +1377,9 @@ public:
       }
 
       if (IDom && TN->getLevel() != IDom->getLevel() + 1) {
-        errs() << "Node " << BlockNamePrinter(BB) << " has level "
+        errs() << "Node " << BlockNamePrinter(iface, BB) << " has level "
                << TN->getLevel() << " while its IDom "
-               << BlockNamePrinter(IDom->getBlock()) << " has level "
+               << BlockNamePrinter(iface, IDom->getBlock()) << " has level "
                << IDom->getLevel() << "!\n";
         errs().flush();
 
@@ -1392,15 +1393,15 @@ public:
   // Check if the computed DFS numbers are correct. Note that DFS info may not
   // be valid, and when that is the case, we don't verify the numbers.
   // Running time: O(N log(N)).
-  static bool VerifyDFSNumbers(const DomTreeT &DT) {
+  static bool VerifyDFSNumbers(CfgInterface &iface, const DomTreeT &DT) {
     if (!DT.DFSInfoValid || !DT.Parent)
       return true;
 
     const NodePtr RootBB = DT.isPostDominator() ? NodePtr{} : *DT.root_begin();
     const TreeNodePtr Root = DT.getNode(RootBB);
 
-    auto PrintNodeAndDFSNums = [](const TreeNodePtr TN) {
-      errs() << BlockNamePrinter(TN) << " {" << TN->getDFSNumIn() << ", "
+    auto PrintNodeAndDFSNums = [&iface](const TreeNodePtr TN) {
+      errs() << BlockNamePrinter(iface, TN) << " {" << TN->getDFSNumIn() << ", "
              << TN->getDFSNumOut() << '}';
     };
 
@@ -1417,8 +1418,7 @@ public:
     // For each tree node verify if children's DFS numbers cover their parent's
     // DFS numbers with no gaps.
     for (const auto &NodeToTN : DT.DomTreeNodes) {
-      const TreeNodePtr Node =
-          static_cast<const TreeNodePtr>(NodeToTN.second.get());
+      const TreeNodePtr Node = NodeToTN.second.get();
 
       // Handle tree leaves.
       if (Node->isLeaf()) {
@@ -1531,14 +1531,13 @@ public:
   // the nodes it dominated previously will now become unreachable.
   bool verifyParentProperty(const DomTreeT &DT) {
     for (auto &NodeToTN : DT.DomTreeNodes) {
-      const TreeNodePtr TN =
-          static_cast<const TreeNodePtr>(NodeToTN.second.get());
+      const TreeNodePtr TN = NodeToTN.second.get();
       const NodePtr BB = TN->getBlock();
       if (!BB || TN->isLeaf())
         continue;
 
       LLVM_DEBUG(dbgs() << "Verifying parent property of node "
-                        << BlockNamePrinter(TN) << "\n");
+                        << BlockNamePrinter(m_iface, TN) << "\n");
       clear();
       doFullDFSWalk(DT, [BB](NodePtr From, NodePtr To) {
         return From != BB && To != BB;
@@ -1546,8 +1545,8 @@ public:
 
       for (TreeNodePtr Child : TN->children())
         if (NodeToInfo.count(Child->getBlock()) != 0) {
-          errs() << "Child " << BlockNamePrinter(Child)
-                 << " reachable after its parent " << BlockNamePrinter(BB)
+          errs() << "Child " << BlockNamePrinter(m_iface, Child)
+                 << " reachable after its parent " << BlockNamePrinter(m_iface, BB)
                  << " is removed!\n";
           errs().flush();
 
@@ -1566,8 +1565,7 @@ public:
   // siblings will now still be reachable.
   bool verifySiblingProperty(const DomTreeT &DT) {
     for (auto &NodeToTN : DT.DomTreeNodes) {
-      const TreeNodePtr TN =
-          static_cast<const TreeNodePtr>(NodeToTN.second.get());
+      const TreeNodePtr TN = NodeToTN.second.get();
       const NodePtr BB = TN->getBlock();
       if (!BB || TN->isLeaf())
         continue;
@@ -1583,8 +1581,8 @@ public:
           if (S == N) continue;
 
           if (NodeToInfo.count(S->getBlock()) == 0) {
-            errs() << "Node " << BlockNamePrinter(S)
-                   << " not reachable when its sibling " << BlockNamePrinter(N)
+            errs() << "Node " << BlockNamePrinter(m_iface, S)
+                   << " not reachable when its sibling " << BlockNamePrinter(m_iface, N)
                    << " is removed!\n";
             errs().flush();
 
@@ -1605,17 +1603,18 @@ public:
   // correct and should be only used for fast (but possibly unsound)
   // verification.
   static bool IsSameAsFreshTree(CfgInterface &iface, const DomTreeT &DT) {
-    DomTreeT FreshTree(DT.isPostDominator());
+    GenericDominatorTreeBase FreshTree(DT.isPostDominator());
     CalculateFromScratch(iface, FreshTree, nullptr);
     const bool Different = DT.compare(FreshTree);
 
     if (Different) {
+      auto printer = iface.makePrinter();
       errs() << (DT.isPostDominator() ? "Post" : "")
              << "DominatorTree is different than a freshly computed one!\n"
              << "\tCurrent:\n";
-      DT.print(iface, errs());
+      DT.print(*printer, errs());
       errs() << "\n\tFreshly computed tree:\n";
-      FreshTree.print(iface, errs());
+      FreshTree.print(*printer, errs());
       errs().flush();
     }
 
@@ -1623,23 +1622,42 @@ public:
   }
 };
 
-template <typename DomTreeT>
-struct SemiNCAInfo : GenericSemiNCAInfo {
+template <typename CfgTraitsT>
+struct SemiNCAInfoHelper {
+  using CfgTraits = CfgTraitsT;
+  using BlockRef = typename CfgTraits::BlockRef;
 
+  template <typename RangeT>
+  static void appendWrappedUpdates(
+      RangeT &&updates, SmallVectorImpl<cfg::Update<CfgBlockRef>> &wrapped) {
+    llvm::transform(std::forward<RangeT>(updates), std::back_inserter(wrapped),
+                    [](const cfg::Update<BlockRef> &update) {
+                      return cfg::Update<CfgBlockRef>(update.getKind(),
+                                                      CfgTraits::toGeneric(update.getFrom()),
+                                                      CfgTraits::toGeneric(update.getTo()));
+                    });
+  }
 };
 
 template <class DomTreeT>
 void Calculate(DomTreeT &DT) {
-  SemiNCAInfo<DomTreeT>::CalculateFromScratch(DT, nullptr);
+  CfgInterfaceImpl<typename DomTreeT::CfgTraits> iface(DT.getParent());
+  GenericSemiNCAInfo::CalculateFromScratch(iface, DT, nullptr);
 }
 
 template <typename DomTreeT>
 void CalculateWithUpdates(DomTreeT &DT,
-                          ArrayRef<typename DomTreeT::UpdateType> Updates) {
+                          ArrayRef<typename DomTreeT::UpdateType> concreteUpdates) {
+  using CfgTraits = typename DomTreeT::CfgTraits;
+  CfgInterfaceImpl<CfgTraits> iface(DT.getParent());
+
+  SmallVector<cfg::Update<CfgBlockRef>, 32> updates;
+  SemiNCAInfoHelper<CfgTraits>::appendWrappedUpdates(concreteUpdates, updates);
+
   // TODO: Move BUI creation in common method, reuse in ApplyUpdates.
-  typename SemiNCAInfo<DomTreeT>::BatchUpdateInfo BUI;
-  LLVM_DEBUG(dbgs() << "Legalizing " << BUI.Updates.size() << " updates\n");
-  cfg::LegalizeUpdates<typename DomTreeT::NodePtr>(Updates, BUI.Updates,
+  GenericSemiNCAInfo::BatchUpdateInfo BUI;
+  LLVM_DEBUG(dbgs() << "Legalizing " << updates.size() << " updates\n");
+  cfg::LegalizeUpdates<typename DomTreeT::NodePtr>(updates, BUI.Updates,
                                                    DomTreeT::IsPostDominator);
   const size_t NumLegalized = BUI.Updates.size();
   BUI.FutureSuccessors.reserve(NumLegalized);
@@ -1649,32 +1667,40 @@ void CalculateWithUpdates(DomTreeT &DT,
     BUI.FuturePredecessors[U.getTo()].push_back({U.getFrom(), U.getKind()});
   }
 
-  SemiNCAInfo<DomTreeT>::CalculateFromScratch(DT, &BUI);
+  GenericSemiNCAInfo::CalculateFromScratch(iface, DT, &BUI);
 }
 
 template <class DomTreeT>
 void InsertEdge(DomTreeT &DT, typename DomTreeT::NodePtr From,
                 typename DomTreeT::NodePtr To) {
   if (DT.isPostDominator()) std::swap(From, To);
-  SemiNCAInfo<DomTreeT>::InsertEdge(DT, nullptr, From, To);
+  CfgInterfaceImpl<typename DomTreeT::CfgTraits> iface(DT.getParent());
+  GenericSemiNCAInfo::InsertEdge(iface, DT, nullptr, From, To);
 }
 
 template <class DomTreeT>
 void DeleteEdge(DomTreeT &DT, typename DomTreeT::NodePtr From,
                 typename DomTreeT::NodePtr To) {
   if (DT.isPostDominator()) std::swap(From, To);
-  SemiNCAInfo<DomTreeT>::DeleteEdge(DT, nullptr, From, To);
+  CfgInterfaceImpl<typename DomTreeT::CfgTraits> iface(DT.getParent());
+  GenericSemiNCAInfo::DeleteEdge(iface, DT, nullptr, From, To);
 }
 
 template <class DomTreeT>
 void ApplyUpdates(DomTreeT &DT,
-                  ArrayRef<typename DomTreeT::UpdateType> Updates) {
-  SemiNCAInfo<DomTreeT>::ApplyUpdates(DT, Updates);
+                  ArrayRef<typename DomTreeT::UpdateType> concreteUpdates) {
+  using CfgTraits = typename DomTreeT::CfgTraits;
+  CfgInterfaceImpl<CfgTraits> iface(DT.getParent());
+  SmallVector<cfg::Update<CfgBlockRef>, 32> updates;
+  SemiNCAInfoHelper<CfgTraits>::appendWrappedUpdates(concreteUpdates, updates);
+  GenericSemiNCAInfo::ApplyUpdates(iface, DT, updates);
 }
 
 template <class DomTreeT>
 bool Verify(const DomTreeT &DT, typename DomTreeT::VerificationLevel VL) {
-  SemiNCAInfo<DomTreeT> SNCA(nullptr);
+  using CfgTraits = typename DomTreeT::CfgTraits;
+  CfgInterfaceImpl<CfgTraits> iface(DT.getParent());
+  GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), nullptr);
 
   // Simplist check is to compare against a new tree. This will also
   // usefully print the old and new trees, if they are different.

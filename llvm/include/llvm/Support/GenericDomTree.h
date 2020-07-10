@@ -117,6 +117,8 @@ public:
     return C;
   }
 
+  void print(CfgPrinter &printer, raw_ostream &out) const;
+
 private:
   // Return true if this node is dominated by other. Use this only if DFS info
   // is valid.
@@ -180,27 +182,17 @@ public:
   DomTreeNodeBase *getIDom() const {
     return static_cast<DomTreeNodeBase *>(IDom);
   }
+
+  void print(raw_ostream &out) const {
+    GenericDomTreeNodeBase::print(
+        CfgPrinterImpl<CfgTraits>(CfgInterfaceImpl<CfgTraits>()), out);
+  }
 };
 
 template <class NodeT>
 raw_ostream &operator<<(raw_ostream &O, const DomTreeNodeBase<NodeT> *Node) {
-  if (Node->getBlock())
-    Node->getBlock()->printAsOperand(O, false);
-  else
-    O << " <<exit node>>";
-
-  O << " {" << Node->getDFSNumIn() << "," << Node->getDFSNumOut() << "} ["
-    << Node->getLevel() << "]\n";
-
+  Node->print(O);
   return O;
-}
-
-template <class NodeT>
-void PrintDomTree(const DomTreeNodeBase<NodeT> *N, raw_ostream &O,
-                  unsigned Lev) {
-  O.indent(2 * Lev) << "[" << Lev << "] " << N;
-  for (const DomTreeNodeBase<NodeT> *Child : N->children())
-    PrintDomTree<NodeT>(Child, O, Lev + 1);
 }
 
 namespace DomTreeBuilder {
@@ -367,6 +359,8 @@ protected:
   void addRoot(CfgBlockRef bb) { this->Roots.push_back(bb); }
 
   GenericDomTreeNodeBase *setNewRoot(CfgBlockRef bb);
+
+  void print(CfgPrinter &printer, raw_ostream &O) const;
 
 private:
   /// Wipe this tree's state without releasing any resources.
@@ -698,23 +692,9 @@ public:
   /// print - Convert to human readable form
   ///
   void print(raw_ostream &O) const {
-    O << "=============================--------------------------------\n";
-    if (IsPostDominator)
-      O << "Inorder PostDominator Tree: ";
-    else
-      O << "Inorder Dominator Tree: ";
-    if (!DFSInfoValid)
-      O << "DFSNumbers invalid: " << SlowQueries << " slow queries.";
-    O << "\n";
-
-    // The postdom tree can have a null root if there are no returns.
-    if (getRootNode()) PrintDomTree<NodeT>(getRootNode(), O, 1);
-    O << "Roots: ";
-    for (const NodePtr Block : CfgTraits::unwrapRange(Roots)) {
-      Block->printAsOperand(O, false);
-      O << " ";
-    }
-    O << "\n";
+    CfgInterfaceImpl<CfgTraits> iface(getParent());
+    CfgPrinterImpl<CfgTraits> printer(iface);
+    GenericDominatorTreeBase::print(printer, O);
   }
 
 public:
