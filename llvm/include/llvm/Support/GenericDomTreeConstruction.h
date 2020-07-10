@@ -58,7 +58,6 @@ struct SemiNCAInfo {
   using NodePtr = typename DomTreeT::NodePtr;
   using TreeNodePtr = typename DomTreeT::TreeNode *;
   using RootsT = decltype(DomTreeT::Roots);
-  static constexpr bool IsPostDom = DomTreeT::IsPostDominator;
 
 private:
   // Information record used by Semi-NCA during tree construction.
@@ -75,6 +74,7 @@ private:
   // a dummy element.
   std::vector<NodePtr> NumToNode = {NodePtr{}};
   DenseMap<NodePtr, InfoRec> NodeToInfo;
+  const bool IsPostDom;
 
 public:
   using UpdateT = typename DomTreeT::UpdateType;
@@ -104,7 +104,8 @@ public:
   using BatchUpdatePtr = BatchUpdateInfo *;
 
   // If BUI is a NodePtr{}, then there's no batch update in progress.
-  SemiNCAInfo(BatchUpdatePtr BUI) : BatchUpdates(BUI) {}
+  SemiNCAInfo(BatchUpdatePtr BUI)
+      : IsPostDom(DomTreeT::IsPostDominator), BatchUpdates(BUI) {}
 
   void clear() {
     NumToNode = {NodePtr{}}; // Restore to initial state with a dummy start node.
@@ -233,7 +234,7 @@ private:
       BBInfo.Label = BB;
       NumToNode.push_back(BB);
 
-      constexpr bool Direction = IsReverse != IsPostDom;  // XOR.
+      const bool Direction = IsReverse != IsPostDom;  // XOR.
       for (const NodePtr Succ : getBlockChildren(BB, Direction, BatchUpdates)) {
         const auto SIT = NodeToInfo.find(Succ);
         // Don't visit nodes more than once but remember to collect
@@ -385,7 +386,7 @@ private:
     RootsT Roots;
 
     // For dominators, function entry CFG node is always a tree root node.
-    if (!IsPostDom) {
+    if (!DT.isPostDominator()) {
       Roots.push_back(CfgTraits::toGeneric(GetEntryNode(DT)));
       return Roots;
     }
@@ -509,7 +510,7 @@ private:
   // input roots.
   static void RemoveRedundantRoots(const DomTreeT &DT, BatchUpdatePtr BUI,
                                    RootsT &Roots) {
-    assert(IsPostDom && "This function is for postdominators only");
+    assert(DT.isPostDominator() && "This function is for postdominators only");
     LLVM_DEBUG(dbgs() << "Removing redundant roots\n");
 
     SemiNCAInfo SNCA(BUI);
@@ -587,7 +588,8 @@ public:
     // Add a node for the root. If the tree is a PostDominatorTree it will be
     // the virtual exit (denoted by (BasicBlock *) nullptr) which postdominates
     // all real exits (including multiple exit blocks, infinite loops).
-    NodePtr Root = IsPostDom ? NodePtr{} : CfgTraits::fromGeneric(DT.Roots[0]);
+    NodePtr Root = DT.isPostDominator() ? NodePtr{}
+                                        : CfgTraits::fromGeneric(DT.Roots[0]);
 
     DT.RootNode = DT.createNode(Root);
     SNCA.attachNewSubtree(DT, DT.getRootNode());
@@ -650,7 +652,7 @@ public:
 
   static void InsertEdge(DomTreeT &DT, const BatchUpdatePtr BUI,
                          const NodePtr From, const NodePtr To) {
-    assert((From || IsPostDom) &&
+    assert((From || DT.isPostDominator()) &&
            "From has to be a valid CFG node or a virtual root");
     assert(To && "Cannot be a nullptr");
     LLVM_DEBUG(dbgs() << "Inserting edge " << BlockNamePrinter(From) << " -> "
@@ -659,7 +661,8 @@ public:
 
     if (!FromTN) {
       // Ignore edges from unreachable nodes for (forward) dominators.
-      if (!IsPostDom) return;
+      if (!DT.isPostDominator())
+        return;
 
       // The unreachable node becomes a new root -- a tree node for it.
       TreeNodePtr VirtualRoot = DT.getNode(NodePtr{});
@@ -681,7 +684,7 @@ public:
   static bool UpdateRootsBeforeInsertion(DomTreeT &DT, const BatchUpdatePtr BUI,
                                          const TreeNodePtr From,
                                          const TreeNodePtr To) {
-    assert(IsPostDom && "This function is only for postdominators");
+    assert(DT.isPostDominator() && "This function is only for postdominators");
     // Destination node is not attached to the virtual root, so it cannot be a
     // root.
     if (!DT.isVirtualRoot(To->getIDom())) return false;
@@ -712,7 +715,7 @@ public:
   // roots are the same when after a series of updates and when the tree would
   // be built from scratch.
   static void UpdateRootsAfterUpdate(DomTreeT &DT, const BatchUpdatePtr BUI) {
-    assert(IsPostDom && "This function is only for postdominators");
+    assert(DT.isPostDominator() && "This function is only for postdominators");
 
     // The tree has only trivial roots -- nothing to update.
     if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [BUI](CfgBlockRef N) {
@@ -741,7 +744,8 @@ public:
                               const TreeNodePtr From, const TreeNodePtr To) {
     LLVM_DEBUG(dbgs() << "\tReachable " << BlockNamePrinter(From->getBlock())
                       << " -> " << BlockNamePrinter(To->getBlock()) << "\n");
-    if (IsPostDom && UpdateRootsBeforeInsertion(DT, BUI, From, To)) return;
+    if (DT.isPostDominator() && UpdateRootsBeforeInsertion(DT, BUI, From, To))
+      return;
     // DT.findNCD expects both pointers to be valid. When From is a virtual
     // root, then its CFG block pointer is a nullptr, so we have to 'compute'
     // the NCD manually.
@@ -795,7 +799,7 @@ public:
         // Invariant: there is an optimal path from `To` to TN with the minimum
         // depth being CurrentLevel.
         for (const NodePtr Succ :
-             getBlockChildren(TN->getBlock(), IsPostDom, BUI)) {
+             getBlockChildren(TN->getBlock(), DT.isPostDominator(), BUI)) {
           const TreeNodePtr SuccTN = DT.getNode(Succ);
           assert(SuccTN &&
                  "Unreachable successor found at reachable insertion");
@@ -860,7 +864,8 @@ public:
              "TN should have been updated by an affected ancestor");
 #endif
 
-    if (IsPostDom) UpdateRootsAfterUpdate(DT, BUI);
+    if (DT.isPostDominator())
+      UpdateRootsAfterUpdate(DT, BUI);
   }
 
   // Handles insertion to previously unreachable nodes.
@@ -924,8 +929,10 @@ public:
     // Ensure that the edge was in fact deleted from the CFG before informing
     // the DomTree about it.
     // The check is O(N), so run it only in debug configuration.
-    auto IsSuccessor = [BUI](const NodePtr SuccCandidate, const NodePtr Of) {
-      auto Successors = getBlockChildren(Of, IsPostDom, BUI);
+    bool isPostDom = DT.isPostDominator();
+    auto IsSuccessor =
+        [BUI, isPostDom](const NodePtr SuccCandidate, const NodePtr Of) {
+      auto Successors = getBlockChildren(Of, isPostDom, BUI);
       return llvm::find(Successors, SuccCandidate) != Successors.end();
     };
     (void)IsSuccessor;
@@ -963,7 +970,8 @@ public:
         DeleteUnreachable(DT, BUI, ToTN);
     }
 
-    if (IsPostDom) UpdateRootsAfterUpdate(DT, BUI);
+    if (DT.isPostDominator())
+      UpdateRootsAfterUpdate(DT, BUI);
   }
 
   // Handles deletions that leave destination nodes reachable.
@@ -1013,7 +1021,7 @@ public:
     LLVM_DEBUG(dbgs() << "IsReachableFromIDom " << BlockNamePrinter(TN)
                       << "\n");
     for (const NodePtr Pred :
-         getBlockChildren(TN->getBlock(), !IsPostDom, BUI)) {
+         getBlockChildren(TN->getBlock(), !DT.isPostDominator(), BUI)) {
       LLVM_DEBUG(dbgs() << "\tPred " << BlockNamePrinter(Pred) << "\n");
       if (!DT.getNode(Pred)) continue;
 
@@ -1040,7 +1048,7 @@ public:
     assert(ToTN);
     assert(ToTN->getBlock());
 
-    if (IsPostDom) {
+    if (DT.isPostDominator()) {
       // Deletion makes a region reverse-unreachable and creates a new root.
       // Simulate that by inserting an edge from the virtual root to ToTN and
       // adding it as a new root.
@@ -1170,7 +1178,7 @@ public:
 
     BatchUpdateInfo BUI;
     LLVM_DEBUG(dbgs() << "Legalizing " << BUI.Updates.size() << " updates\n");
-    cfg::LegalizeUpdates<NodePtr>(Updates, BUI.Updates, IsPostDom);
+    cfg::LegalizeUpdates<NodePtr>(Updates, BUI.Updates, DT.isPostDominator());
 
     const size_t NumLegalized = BUI.Updates.size();
     BUI.FutureSuccessors.reserve(NumLegalized);
@@ -1374,7 +1382,7 @@ public:
     if (!DT.DFSInfoValid || !DT.Parent)
       return true;
 
-    const NodePtr RootBB = IsPostDom ? NodePtr{} : *DT.root_begin();
+    const NodePtr RootBB = DT.isPostDominator() ? NodePtr{} : *DT.root_begin();
     const TreeNodePtr Root = DT.getNode(RootBB);
 
     auto PrintNodeAndDFSNums = [](const TreeNodePtr TN) {
