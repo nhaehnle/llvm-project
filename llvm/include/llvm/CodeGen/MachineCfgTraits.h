@@ -64,6 +64,9 @@ public:
   explicit MachineCfgTraits(MachineFunction *parent)
       : m_regInfo(&parent->getRegInfo()) {}
 
+  static MachineBasicBlock *getEntryBlock(MachineFunction *parent) {
+    return &parent->front();
+  }
   static MachineFunction *getBlockParent(MachineBasicBlock *block) {
     return block->getParent();
   }

@@ -39,6 +39,9 @@ public:
 
 class VPCfgTraits : public CfgTraits<VPCfgTraitsBase, VPCfgTraits> {
 public:
+  static VPBlockBase *getEntryNode(VPRegionBlock *parent) {
+    return parent->getEntry();
+  }
   static VPRegionBlock *getBlockParent(VPBlockBase *block) {
     return block->getParent();
   }

@@ -419,6 +419,8 @@ public:
     return GenericDominatorTreeBase::compare(Other);
   }
 
+  ParentType *getParent() const { return CfgTraits::fromGeneric(Parent); }
+
   /// getNode - return the (Post)DominatorTree node for the specified basic
   /// block.  This is the same as using operator[] on this class.  The result
   /// may (but is not required to) be null for a forward (backwards)
@@ -572,8 +574,8 @@ public:
   void insertEdge(NodeT *From, NodeT *To) {
     assert(From);
     assert(To);
-    assert(From->getParent() == Parent);
-    assert(To->getParent() == Parent);
+    assert(From->getParent() == getParent());
+    assert(To->getParent() == getParent());
     DomTreeBuilder::InsertEdge(*this, From, To);
   }
 
@@ -590,8 +592,8 @@ public:
   void deleteEdge(NodeT *From, NodeT *To) {
     assert(From);
     assert(To);
-    assert(From->getParent() == Parent);
-    assert(To->getParent() == Parent);
+    assert(From->getParent() == getParent());
+    assert(To->getParent() == getParent());
     DomTreeBuilder::DeleteEdge(*this, From, To);
   }
 
@@ -690,7 +692,7 @@ public:
     // The postdom tree can have a null root if there are no returns.
     if (getRootNode()) PrintDomTree<NodeT>(getRootNode(), O, 1);
     O << "Roots: ";
-    for (const NodePtr Block : Roots) {
+    for (const NodePtr Block : CfgTraits::unwrapRange(Roots)) {
       Block->printAsOperand(O, false);
       O << " ";
     }
@@ -700,12 +702,12 @@ public:
 public:
   /// recalculate - compute a dominator tree for the given function
   void recalculate(ParentType &Func) {
-    Parent = &Func;
+    Parent = CfgTraits::toGeneric(&Func);
     DomTreeBuilder::Calculate(*this);
   }
 
   void recalculate(ParentType &Func, ArrayRef<UpdateType> Updates) {
-    Parent = &Func;
+    Parent = CfgTraits::toGeneric(&Func);
     DomTreeBuilder::CalculateWithUpdates(*this, Updates);
   }
 

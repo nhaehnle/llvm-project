@@ -32,6 +32,7 @@ public:
 
 class CfgTraits : public llvm::CfgTraits<CfgTraitsBase, CfgTraits> {
 public:
+  static Block *getEntryBlock(Region *parent) { return &parent->front(); }
   static Region *getBlockParent(Block *block) { return block->getParent(); }
 
   static auto predecessors(Block *block) {

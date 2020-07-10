@@ -43,6 +43,9 @@ public:
 
 class CfgTraits : public llvm::CfgTraits<CfgTraitsBase, CfgTraits> {
 public:
+  static CFGBlock *getEntryBlock(CFG* parent) {
+    return &parent->getEntry();
+  }
   static ParentType *getBlockParent(CFGBlock *block) {
     return block->getParent();
   }

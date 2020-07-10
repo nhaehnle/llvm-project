@@ -374,7 +374,7 @@ private:
 
   static NodePtr GetEntryNode(const DomTreeT &DT) {
     assert(DT.Parent && "Parent not set");
-    return GraphTraits<typename DomTreeT::ParentPtr>::getEntryNode(DT.Parent);
+    return GraphTraits<typename DomTreeT::ParentPtr>::getEntryNode(DT.getParent());
   }
 
   // Finds all roots without relaying on the set of roots already stored in the
@@ -386,7 +386,7 @@ private:
 
     // For dominators, function entry CFG node is always a tree root node.
     if (!IsPostDom) {
-      Roots.push_back(GetEntryNode(DT));
+      Roots.push_back(CfgTraits::toGeneric(GetEntryNode(DT)));
       return Roots;
     }
 
@@ -406,11 +406,11 @@ private:
     // exist -- we won't see any outgoing or incoming edges to them, so it's
     // fine to discover them here, as they would end up appearing in the CFG at
     // some point anyway.
-    for (const NodePtr N : nodes(DT.Parent)) {
+    for (const NodePtr N : nodes(DT.getParent())) {
       ++Total;
       // If it has no *successors*, it is definitely a root.
       if (!HasForwardSuccessors(N, BUI)) {
-        Roots.push_back(N);
+        Roots.push_back(CfgTraits::toGeneric(N));
         // Run DFS not to walk this part of CFG later.
         Num = SNCA.runDFS(N, Num, AlwaysDescend, 1);
         LLVM_DEBUG(dbgs() << "Found a new trivial root: " << BlockNamePrinter(N)
@@ -438,7 +438,7 @@ private:
       // unreachable node once, we may just visit it in two directions,
       // depending on how lucky we get.
       SmallPtrSet<NodePtr, 4> ConnectToExitBlock;
-      for (const NodePtr I : nodes(DT.Parent)) {
+      for (const NodePtr I : nodes(DT.getParent())) {
         if (SNCA.NodeToInfo.count(I) == 0) {
           LLVM_DEBUG(dbgs()
                      << "\t\t\tVisiting node " << BlockNamePrinter(I) << "\n");
@@ -460,7 +460,7 @@ private:
                             << "(non-trivial root): "
                             << BlockNamePrinter(FurthestAway) << "\n");
           ConnectToExitBlock.insert(FurthestAway);
-          Roots.push_back(FurthestAway);
+          Roots.push_back(CfgTraits::toGeneric(FurthestAway));
           LLVM_DEBUG(dbgs() << "\t\t\tPrev DFSNum: " << Num << ", new DFSNum: "
                             << NewNum << "\n\t\t\tRemoving DFS info\n");
           for (unsigned i = NewNum; i > Num; --i) {
@@ -492,7 +492,7 @@ private:
 
     LLVM_DEBUG(dbgs() << "Found roots: ");
     LLVM_DEBUG(for (auto *Root
-                    : Roots) dbgs()
+                    : CfgTraits::unwrapRange(Roots)) dbgs()
                << BlockNamePrinter(Root) << " ");
     LLVM_DEBUG(dbgs() << "\n");
 
@@ -517,12 +517,13 @@ private:
     for (unsigned i = 0; i < Roots.size(); ++i) {
       auto &Root = Roots[i];
       // Trivial roots are always non-redundant.
-      if (!HasForwardSuccessors(Root, BUI)) continue;
-      LLVM_DEBUG(dbgs() << "\tChecking if " << BlockNamePrinter(Root)
+      if (!HasForwardSuccessors(CfgTraits::fromGeneric(Root), BUI)) continue;
+      LLVM_DEBUG(dbgs() << "\tChecking if "
+                        << BlockNamePrinter(CfgTraits::fromGeneric(Root))
                         << " remains a root\n");
       SNCA.clear();
       // Do a forward walk looking for the other roots.
-      const unsigned Num = SNCA.runDFS<true>(Root, 0, AlwaysDescend, 0);
+      const unsigned Num = SNCA.runDFS<true>(CfgTraits::fromGeneric(Root), 0, AlwaysDescend, 0);
       // Skip the start node and begin from the second one (note that DFS uses
       // 1-based indexing).
       for (unsigned x = 2; x <= Num; ++x) {
@@ -530,10 +531,11 @@ private:
         // If we wound another root in a (forward) DFS walk, remove the current
         // root from the set of roots, as it is reverse-reachable from the other
         // one.
-        if (llvm::find(Roots, N) != Roots.end()) {
+        if (llvm::find(Roots, CfgTraits::toGeneric(N)) != Roots.end()) {
           LLVM_DEBUG(dbgs() << "\tForward DFS walk found another root "
                             << BlockNamePrinter(N) << "\n\tRemoving root "
-                            << BlockNamePrinter(Root) << "\n");
+                            << BlockNamePrinter(CfgTraits::fromGeneric(Root))
+                            << "\n");
           std::swap(Root, Roots.back());
           Roots.pop_back();
 
@@ -550,18 +552,19 @@ private:
   void doFullDFSWalk(const DomTreeT &DT, DescendCondition DC) {
     if (!IsPostDom) {
       assert(DT.Roots.size() == 1 && "Dominators should have a singe root");
-      runDFS(DT.Roots[0], 0, DC, 0);
+      runDFS(CfgTraits::fromGeneric(DT.Roots[0]), 0, DC, 0);
       return;
     }
 
     addVirtualRoot();
     unsigned Num = 1;
-    for (const NodePtr Root : DT.Roots) Num = runDFS(Root, Num, DC, 0);
+    for (const NodePtr Root : CfgTraits::unwrapRange(DT.Roots))
+      Num = runDFS(Root, Num, DC, 0);
   }
 
 public:
   static void CalculateFromScratch(DomTreeT &DT, BatchUpdatePtr BUI) {
-    auto *Parent = DT.Parent;
+    auto Parent = DT.Parent;
     DT.reset();
     DT.Parent = Parent;
     SemiNCAInfo SNCA(nullptr);  // Since we are rebuilding the whole tree,
@@ -584,7 +587,7 @@ public:
     // Add a node for the root. If the tree is a PostDominatorTree it will be
     // the virtual exit (denoted by (BasicBlock *) nullptr) which postdominates
     // all real exits (including multiple exit blocks, infinite loops).
-    NodePtr Root = IsPostDom ? nullptr : DT.Roots[0];
+    NodePtr Root = IsPostDom ? nullptr : CfgTraits::fromGeneric(DT.Roots[0]);
 
     DT.RootNode = DT.createNode(Root);
     SNCA.attachNewSubtree(DT, DT.getRootNode());
@@ -661,7 +664,7 @@ public:
       // The unreachable node becomes a new root -- a tree node for it.
       TreeNodePtr VirtualRoot = DT.getNode(nullptr);
       FromTN = DT.createChild(From, VirtualRoot);
-      DT.Roots.push_back(From);
+      DT.Roots.push_back(CfgTraits::toGeneric(From));
     }
 
     DT.DFSInfoValid = false;
@@ -683,7 +686,7 @@ public:
     // root.
     if (!DT.isVirtualRoot(To->getIDom())) return false;
 
-    auto RIt = llvm::find(DT.Roots, To->getBlock());
+    auto RIt = llvm::find(DT.Roots, CfgTraits::toGeneric(To->getBlock()));
     if (RIt == DT.Roots.end())
       return false;  // To is not a root, nothing to update.
 
@@ -694,12 +697,12 @@ public:
     return true;
   }
 
-  static bool isPermutation(const SmallVectorImpl<NodePtr> &A,
-                            const SmallVectorImpl<NodePtr> &B) {
+  static bool isPermutation(const SmallVectorImpl<CfgBlockRef> &A,
+                            const SmallVectorImpl<CfgBlockRef> &B) {
     if (A.size() != B.size())
       return false;
-    SmallPtrSet<NodePtr, 4> Set(A.begin(), A.end());
-    for (NodePtr N : B)
+    SmallPtrSet<CfgBlockRef, 4> Set(A.begin(), A.end());
+    for (CfgBlockRef N : B)
       if (Set.count(N) == 0)
         return false;
     return true;
@@ -712,8 +715,8 @@ public:
     assert(IsPostDom && "This function is only for postdominators");
 
     // The tree has only trivial roots -- nothing to update.
-    if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [BUI](const NodePtr N) {
-          return HasForwardSuccessors(N, BUI);
+    if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [BUI](CfgBlockRef N) {
+          return HasForwardSuccessors(CfgTraits::fromGeneric(N), BUI);
         }))
       return;
 
@@ -1044,7 +1047,7 @@ public:
       LLVM_DEBUG(dbgs() << "\tDeletion made a region reverse-unreachable\n");
       LLVM_DEBUG(dbgs() << "\tAdding new root " << BlockNamePrinter(ToTN)
                         << "\n");
-      DT.Roots.push_back(ToTN->getBlock());
+      DT.Roots.push_back(CfgTraits::toGeneric(ToTN->getBlock()));
       InsertReachable(DT, BUI, DT.getNode(nullptr), ToTN);
       return;
     }
@@ -1282,9 +1285,10 @@ public:
     if (!isPermutation(DT.Roots, ComputedRoots)) {
       errs() << "Tree has different roots than freshly computed ones!\n";
       errs() << "\tPDT roots: ";
-      for (const NodePtr N : DT.Roots) errs() << BlockNamePrinter(N) << ", ";
+      for (const NodePtr N : CfgTraits::unwrapRange(DT.Roots))
+        errs() << BlockNamePrinter(N) << ", ";
       errs() << "\n\tComputed roots: ";
-      for (const NodePtr N : ComputedRoots)
+      for (const NodePtr N : CfgTraits::unwrapRange(ComputedRoots))
         errs() << BlockNamePrinter(N) << ", ";
       errs() << "\n";
       errs().flush();
@@ -1580,7 +1584,7 @@ public:
   // verification.
   static bool IsSameAsFreshTree(const DomTreeT &DT) {
     DomTreeT FreshTree;
-    FreshTree.recalculate(*DT.Parent);
+    FreshTree.recalculate(*DT.getParent());
     const bool Different = DT.compare(FreshTree);
 
     if (Different) {

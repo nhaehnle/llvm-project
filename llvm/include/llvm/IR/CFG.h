@@ -428,6 +428,9 @@ class IrCfgTraits : public CfgTraits<IrCfgTraitsBase, IrCfgTraits> {
 public:
   explicit IrCfgTraits(Function * /*parent*/) {}
 
+  static BasicBlock *getEntryBlock(Function *parent) {
+    return &parent->getEntryBlock();
+  }
   static Function *getBlockParent(BasicBlock *block) {
     return block->getParent();
   }

@@ -148,7 +148,7 @@ class DominatorTree : public DominatorTreeBase<BasicBlock, false> {
   DominatorTree() = default;
   explicit DominatorTree(Function &F) { recalculate(F); }
   explicit DominatorTree(DominatorTree &DT, DomTreeBuilder::BBUpdates U) {
-    recalculate(*DT.Parent, U);
+    recalculate(*DT.getParent(), U);
   }
 
   /// Handle invalidation explicitly.
