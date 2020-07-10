@@ -66,14 +66,14 @@ private:
     unsigned DFSNum = 0;
     unsigned Parent = 0;
     unsigned Semi = 0;
-    NodePtr Label = nullptr;
-    NodePtr IDom = nullptr;
+    NodePtr Label = NodePtr{};
+    NodePtr IDom = NodePtr{};
     SmallVector<NodePtr, 2> ReverseChildren;
   };
 
   // Number to node mapping is 1-based. Initialize the mapping to start with
   // a dummy element.
-  std::vector<NodePtr> NumToNode = {nullptr};
+  std::vector<NodePtr> NumToNode = {NodePtr{}};
   DenseMap<NodePtr, InfoRec> NodeToInfo;
 
 public:
@@ -103,11 +103,11 @@ private:
 public:
   using BatchUpdatePtr = BatchUpdateInfo *;
 
-  // If BUI is a nullptr, then there's no batch update in progress.
+  // If BUI is a NodePtr{}, then there's no batch update in progress.
   SemiNCAInfo(BatchUpdatePtr BUI) : BatchUpdates(BUI) {}
 
   void clear() {
-    NumToNode = {nullptr}; // Restore to initial state with a dummy start node.
+    NumToNode = {NodePtr{}}; // Restore to initial state with a dummy start node.
     NodeToInfo.clear();
     // Don't reset the pointer to BatchUpdateInfo here -- if there's an update
     // in progress, we need this information to continue it.
@@ -171,7 +171,7 @@ private:
 
   NodePtr getIDom(NodePtr BB) const {
     auto InfoIt = NodeToInfo.find(BB);
-    if (InfoIt == NodeToInfo.end()) return nullptr;
+    if (InfoIt == NodeToInfo.end()) return NodePtr{};
 
     return InfoIt->second.IDom;
   }
@@ -197,7 +197,7 @@ private:
     NodePtr N;
 
     BlockNamePrinter(NodePtr Block) : N(Block) {}
-    BlockNamePrinter(TreeNodePtr TN) : N(TN ? TN->getBlock() : nullptr) {}
+    BlockNamePrinter(TreeNodePtr TN) : N(TN ? TN->getBlock() : NodePtr{}) {}
 
     friend raw_ostream &operator<<(raw_ostream &O, const BlockNamePrinter &BP) {
       if (!BP.N)
@@ -357,11 +357,11 @@ private:
     assert(IsPostDom && "Only postdominators have a virtual root");
     assert(NumToNode.size() == 1 && "SNCAInfo must be freshly constructed");
 
-    auto &BBInfo = NodeToInfo[nullptr];
+    auto &BBInfo = NodeToInfo[NodePtr{}];
     BBInfo.DFSNum = BBInfo.Semi = 1;
-    BBInfo.Label = nullptr;
+    BBInfo.Label = NodePtr{};
 
-    NumToNode.push_back(nullptr);  // NumToNode[1] = nullptr;
+    NumToNode.push_back(NodePtr{});  // NumToNode[1] = NodePtr{};
   }
 
   // For postdominators, nodes with no forward successors are trivial roots that
@@ -587,7 +587,7 @@ public:
     // Add a node for the root. If the tree is a PostDominatorTree it will be
     // the virtual exit (denoted by (BasicBlock *) nullptr) which postdominates
     // all real exits (including multiple exit blocks, infinite loops).
-    NodePtr Root = IsPostDom ? nullptr : CfgTraits::fromGeneric(DT.Roots[0]);
+    NodePtr Root = IsPostDom ? NodePtr{} : CfgTraits::fromGeneric(DT.Roots[0]);
 
     DT.RootNode = DT.createNode(Root);
     SNCA.attachNewSubtree(DT, DT.getRootNode());
@@ -662,7 +662,7 @@ public:
       if (!IsPostDom) return;
 
       // The unreachable node becomes a new root -- a tree node for it.
-      TreeNodePtr VirtualRoot = DT.getNode(nullptr);
+      TreeNodePtr VirtualRoot = DT.getNode(NodePtr{});
       FromTN = DT.createChild(From, VirtualRoot);
       DT.Roots.push_back(CfgTraits::toGeneric(From));
     }
@@ -748,7 +748,7 @@ public:
     const NodePtr NCDBlock =
         (From->getBlock() && To->getBlock())
             ? DT.findNearestCommonDominator(From->getBlock(), To->getBlock())
-            : nullptr;
+            : NodePtr{};
     assert(NCDBlock || DT.isPostDominator());
     const TreeNodePtr NCD = DT.getNode(NCDBlock);
     assert(NCD);
@@ -1048,7 +1048,7 @@ public:
       LLVM_DEBUG(dbgs() << "\tAdding new root " << BlockNamePrinter(ToTN)
                         << "\n");
       DT.Roots.push_back(CfgTraits::toGeneric(ToTN->getBlock()));
-      InsertReachable(DT, BUI, DT.getNode(nullptr), ToTN);
+      InsertReachable(DT, BUI, DT.getNode(NodePtr{}), ToTN);
       return;
     }
 
@@ -1374,7 +1374,7 @@ public:
     if (!DT.DFSInfoValid || !DT.Parent)
       return true;
 
-    const NodePtr RootBB = IsPostDom ? nullptr : *DT.root_begin();
+    const NodePtr RootBB = IsPostDom ? NodePtr{} : *DT.root_begin();
     const TreeNodePtr Root = DT.getNode(RootBB);
 
     auto PrintNodeAndDFSNums = [](const TreeNodePtr TN) {
