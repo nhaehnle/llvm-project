@@ -283,6 +283,8 @@ public:
   /// isPostDominator - Returns true if analysis based on post-dominators.
   bool isPostDominator() const { return IsPostDominator; }
 
+  CfgParentRef getParent() const { return Parent; }
+
   /// getNode - return the (Post)DominatorTree node for the specified basic
   /// block.  This is the same as using operator[] on this class.  The result
   /// may (but is not required to) be null for a forward (backwards)
@@ -299,6 +301,18 @@ public:
     return getNode(BB);
   }
 
+  /// Iteration over roots.
+  ///
+  /// This may include multiple blocks if we are computing post dominators.
+  /// For forward dominators, this will always be a single block (the entry
+  /// block).
+  auto root_begin() const { return Roots.begin(); }
+  auto root_end() const { return Roots.end(); }
+
+  size_t root_size() const { return Roots.size(); }
+
+  auto roots() const { return make_range(root_begin(), root_end()); }
+
   /// getRootNode - This returns the entry node for the CFG of the function.  If
   /// this tree represents the post-dominance relations for a function, however,
   /// this root may be a node with the block == NULL.  This is the case when
@@ -307,6 +321,10 @@ public:
   /// possibility.
   GenericDomTreeNodeBase *getRootNode() { return RootNode; }
   const GenericDomTreeNodeBase *getRootNode() const { return RootNode; }
+
+  bool isVirtualRoot(const GenericDomTreeNodeBase *A) const {
+    return isPostDominator() && !A->getBlock();
+  }
 
   bool isReachableFromEntry(const GenericDomTreeNodeBase *A) const { return A; }
 

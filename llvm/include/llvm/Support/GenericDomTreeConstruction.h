@@ -42,6 +42,7 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/Support/CfgTraits.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/GenericDomTree.h"
 #include <queue>
@@ -51,13 +52,12 @@
 namespace llvm {
 namespace DomTreeBuilder {
 
-template <typename DomTreeT>
-struct SemiNCAInfo {
-  using CfgTraits = typename DomTreeT::CfgTraits;
-  using BlockRef = typename CfgTraits::BlockRef;
-  using NodePtr = typename DomTreeT::NodePtr;
-  using TreeNodePtr = typename DomTreeT::TreeNode *;
-  using RootsT = decltype(DomTreeT::Roots);
+struct GenericSemiNCAInfo {
+  using DomTreeT = GenericDominatorTreeBase;
+  using BlockRef = CfgBlockRef; // TODO: eliminate this
+  using NodePtr = CfgBlockRef; // TODO: eliminate this
+  using TreeNodePtr = GenericDomTreeNodeBase *;
+  using RootsT = decltype(GenericDominatorTreeBase::Roots);
 
 private:
   // Information record used by Semi-NCA during tree construction.
@@ -74,11 +74,12 @@ private:
   // a dummy element.
   std::vector<NodePtr> NumToNode = {NodePtr{}};
   DenseMap<NodePtr, InfoRec> NodeToInfo;
+  CfgInterface &m_iface;
   const bool IsPostDom;
 
 public:
-  using UpdateT = typename DomTreeT::UpdateType;
-  using UpdateKind = typename DomTreeT::UpdateKind;
+  using UpdateT = cfg::Update<CfgBlockRef>;
+  using UpdateKind = cfg::UpdateKind;
   struct BatchUpdateInfo {
     SmallVector<UpdateT, 4> Updates;
     using NodePtrAndKind = PointerIntPair<NodePtr, 1, UpdateKind>;
@@ -104,8 +105,9 @@ public:
   using BatchUpdatePtr = BatchUpdateInfo *;
 
   // If BUI is a NodePtr{}, then there's no batch update in progress.
-  SemiNCAInfo(BatchUpdatePtr BUI)
-      : IsPostDom(DomTreeT::IsPostDominator), BatchUpdates(BUI) {}
+  GenericSemiNCAInfo(CfgInterface &iface, bool isPostDominator,
+                     BatchUpdatePtr BUI)
+      : m_iface(iface), IsPostDom(isPostDominator), BatchUpdates(BUI) {}
 
   void clear() {
     NumToNode = {NodePtr{}}; // Restore to initial state with a dummy start node.
@@ -117,16 +119,15 @@ public:
 private:
   /// Get the "children" of \p node corresponding to the state of the CFG
   /// before applying \p bui (which may be null).
-  static SmallVector<BlockRef, 8> getBlockChildren(BlockRef node, bool inverse,
-                                                   BatchUpdatePtr bui) {
+  static SmallVector<BlockRef, 8> getBlockChildren(
+      CfgInterface &iface, BlockRef node, bool inverse, BatchUpdatePtr bui) {
     SmallVector<BlockRef, 8> result;
 
     if (inverse) {
-      auto preds = CfgTraits::predecessors(node);
-      result.insert(result.begin(), adl_begin(preds), adl_end(preds));
+      iface.appendPredecessors(node, result);
     } else {
-      auto succs = llvm::reverse(CfgTraits::successors(node));
-      result.insert(result.begin(), adl_begin(succs), adl_end(succs));
+      iface.appendSuccessors(node, result);
+      std::reverse(result.begin(), result.end());
     }
 
     // If there's no batch update in progress, simply return node's children.
@@ -235,7 +236,8 @@ private:
       NumToNode.push_back(BB);
 
       const bool Direction = IsReverse != IsPostDom;  // XOR.
-      for (const NodePtr Succ : getBlockChildren(BB, Direction, BatchUpdates)) {
+      for (const NodePtr Succ :
+           getBlockChildren(m_iface, BB, Direction, BatchUpdates)) {
         const auto SIT = NodeToInfo.find(Succ);
         // Don't visit nodes more than once but remember to collect
         // ReverseChildren.
@@ -368,30 +370,27 @@ private:
   // For postdominators, nodes with no forward successors are trivial roots that
   // are always selected as tree roots. Roots with forward successors correspond
   // to CFG nodes within infinite loops.
-  static bool HasForwardSuccessors(const NodePtr N, BatchUpdatePtr BUI) {
+  static bool HasForwardSuccessors(CfgInterface &iface, const NodePtr N,
+                                   BatchUpdatePtr BUI) {
     assert(N && "N must be a valid node");
-    return !getBlockChildren(N, false, BUI).empty();
-  }
-
-  static NodePtr GetEntryNode(const DomTreeT &DT) {
-    assert(DT.Parent && "Parent not set");
-    return GraphTraits<typename DomTreeT::ParentPtr>::getEntryNode(DT.getParent());
+    return !getBlockChildren(iface, N, false, BUI).empty();
   }
 
   // Finds all roots without relaying on the set of roots already stored in the
   // tree.
   // We define roots to be some non-redundant set of the CFG nodes
-  static RootsT FindRoots(const DomTreeT &DT, BatchUpdatePtr BUI) {
+  static RootsT FindRoots(CfgInterface &iface, const DomTreeT &DT,
+                          BatchUpdatePtr BUI) {
     assert(DT.Parent && "Parent pointer is not set");
     RootsT Roots;
 
     // For dominators, function entry CFG node is always a tree root node.
     if (!DT.isPostDominator()) {
-      Roots.push_back(CfgTraits::toGeneric(GetEntryNode(DT)));
+      Roots.push_back(iface.getEntryBlock(DT.getParent()));
       return Roots;
     }
 
-    SemiNCAInfo SNCA(BUI);
+    GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), BUI);
 
     // PostDominatorTree always has a virtual root.
     SNCA.addVirtualRoot();
@@ -407,11 +406,13 @@ private:
     // exist -- we won't see any outgoing or incoming edges to them, so it's
     // fine to discover them here, as they would end up appearing in the CFG at
     // some point anyway.
-    for (const NodePtr N : nodes(DT.getParent())) {
+    SmallVector<CfgBlockRef, 64> blocks;
+    iface.appendBlocks(DT.getParent(), blocks);
+    for (const NodePtr N : blocks) {
       ++Total;
       // If it has no *successors*, it is definitely a root.
-      if (!HasForwardSuccessors(N, BUI)) {
-        Roots.push_back(CfgTraits::toGeneric(N));
+      if (!HasForwardSuccessors(iface, N, BUI)) {
+        Roots.push_back(N);
         // Run DFS not to walk this part of CFG later.
         Num = SNCA.runDFS(N, Num, AlwaysDescend, 1);
         LLVM_DEBUG(dbgs() << "Found a new trivial root: " << BlockNamePrinter(N)
@@ -439,7 +440,7 @@ private:
       // unreachable node once, we may just visit it in two directions,
       // depending on how lucky we get.
       SmallPtrSet<NodePtr, 4> ConnectToExitBlock;
-      for (const NodePtr I : nodes(DT.getParent())) {
+      for (const NodePtr I : blocks) {
         if (SNCA.NodeToInfo.count(I) == 0) {
           LLVM_DEBUG(dbgs()
                      << "\t\t\tVisiting node " << BlockNamePrinter(I) << "\n");
@@ -461,7 +462,7 @@ private:
                             << "(non-trivial root): "
                             << BlockNamePrinter(FurthestAway) << "\n");
           ConnectToExitBlock.insert(FurthestAway);
-          Roots.push_back(CfgTraits::toGeneric(FurthestAway));
+          Roots.push_back(FurthestAway);
           LLVM_DEBUG(dbgs() << "\t\t\tPrev DFSNum: " << Num << ", new DFSNum: "
                             << NewNum << "\n\t\t\tRemoving DFS info\n");
           for (unsigned i = NewNum; i > Num; --i) {
@@ -489,11 +490,10 @@ private:
     assert((Total + 1 == Num) && "Everything should have been visited");
 
     // Step #3: If we found some non-trivial roots, make them non-redundant.
-    if (HasNonTrivialRoots) RemoveRedundantRoots(DT, BUI, Roots);
+    if (HasNonTrivialRoots) RemoveRedundantRoots(iface, DT, BUI, Roots);
 
     LLVM_DEBUG(dbgs() << "Found roots: ");
-    LLVM_DEBUG(for (auto *Root
-                    : CfgTraits::unwrapRange(Roots)) dbgs()
+    LLVM_DEBUG(for (CfgBlockRef Root : Roots) dbgs()
                << BlockNamePrinter(Root) << " ");
     LLVM_DEBUG(dbgs() << "\n");
 
@@ -508,23 +508,23 @@ private:
   // the non-trivial roots are reverse-reachable from other non-trivial roots,
   // which makes them redundant. This function removes them from the set of
   // input roots.
-  static void RemoveRedundantRoots(const DomTreeT &DT, BatchUpdatePtr BUI,
-                                   RootsT &Roots) {
+  static void RemoveRedundantRoots(CfgInterface &iface, const DomTreeT &DT,
+                                   BatchUpdatePtr BUI, RootsT &Roots) {
     assert(DT.isPostDominator() && "This function is for postdominators only");
     LLVM_DEBUG(dbgs() << "Removing redundant roots\n");
 
-    SemiNCAInfo SNCA(BUI);
+    GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), BUI);
 
     for (unsigned i = 0; i < Roots.size(); ++i) {
       auto &Root = Roots[i];
       // Trivial roots are always non-redundant.
-      if (!HasForwardSuccessors(CfgTraits::fromGeneric(Root), BUI)) continue;
+      if (!HasForwardSuccessors(iface, Root, BUI)) continue;
       LLVM_DEBUG(dbgs() << "\tChecking if "
-                        << BlockNamePrinter(CfgTraits::fromGeneric(Root))
+                        << BlockNamePrinter(Root)
                         << " remains a root\n");
       SNCA.clear();
       // Do a forward walk looking for the other roots.
-      const unsigned Num = SNCA.runDFS<true>(CfgTraits::fromGeneric(Root), 0, AlwaysDescend, 0);
+      const unsigned Num = SNCA.runDFS<true>(Root, 0, AlwaysDescend, 0);
       // Skip the start node and begin from the second one (note that DFS uses
       // 1-based indexing).
       for (unsigned x = 2; x <= Num; ++x) {
@@ -532,10 +532,10 @@ private:
         // If we wound another root in a (forward) DFS walk, remove the current
         // root from the set of roots, as it is reverse-reachable from the other
         // one.
-        if (llvm::find(Roots, CfgTraits::toGeneric(N)) != Roots.end()) {
+        if (llvm::find(Roots, N) != Roots.end()) {
           LLVM_DEBUG(dbgs() << "\tForward DFS walk found another root "
                             << BlockNamePrinter(N) << "\n\tRemoving root "
-                            << BlockNamePrinter(CfgTraits::fromGeneric(Root))
+                            << BlockNamePrinter(Root)
                             << "\n");
           std::swap(Root, Roots.back());
           Roots.pop_back();
@@ -553,27 +553,29 @@ private:
   void doFullDFSWalk(const DomTreeT &DT, DescendCondition DC) {
     if (!IsPostDom) {
       assert(DT.Roots.size() == 1 && "Dominators should have a singe root");
-      runDFS(CfgTraits::fromGeneric(DT.Roots[0]), 0, DC, 0);
+      runDFS(DT.Roots[0], 0, DC, 0);
       return;
     }
 
     addVirtualRoot();
     unsigned Num = 1;
-    for (const NodePtr Root : CfgTraits::unwrapRange(DT.Roots))
+    for (const NodePtr Root : DT.Roots)
       Num = runDFS(Root, Num, DC, 0);
   }
 
 public:
-  static void CalculateFromScratch(DomTreeT &DT, BatchUpdatePtr BUI) {
+  static void CalculateFromScratch(CfgInterface &iface, DomTreeT &DT,
+                                   BatchUpdatePtr BUI) {
     auto Parent = DT.Parent;
     DT.reset();
     DT.Parent = Parent;
-    SemiNCAInfo SNCA(nullptr);  // Since we are rebuilding the whole tree,
-                                // there's no point doing it incrementally.
+    // Since we are rebuilding the whole tree,
+    // there's no point doing it incrementally.
+    GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), nullptr);
 
     // Step #0: Number blocks in depth-first order and initialize variables used
     // in later stages of the algorithm.
-    DT.Roots = FindRoots(DT, nullptr);
+    DT.Roots = FindRoots(iface, DT, nullptr);
     SNCA.doFullDFSWalk(DT, AlwaysDescend);
 
     SNCA.runSemiNCA(DT);
@@ -588,8 +590,7 @@ public:
     // Add a node for the root. If the tree is a PostDominatorTree it will be
     // the virtual exit (denoted by (BasicBlock *) nullptr) which postdominates
     // all real exits (including multiple exit blocks, infinite loops).
-    NodePtr Root = DT.isPostDominator() ? NodePtr{}
-                                        : CfgTraits::fromGeneric(DT.Roots[0]);
+    NodePtr Root = DT.isPostDominator() ? NodePtr{} : DT.Roots[0];
 
     DT.RootNode = DT.createNode(Root);
     SNCA.attachNewSubtree(DT, DT.getRootNode());
@@ -604,7 +605,7 @@ private:
       NodePtr W = NumToNode[i];
 
       // Don't replace this with 'count', the insertion side effect is important
-      if (DT.DomTreeNodes[CfgTraits::toGeneric(W)])
+      if (DT.DomTreeNodes[W])
         continue; // Haven't calculated this node yet?
 
       NodePtr ImmDom = getIDom(W);
@@ -650,7 +651,8 @@ public:
 #endif
   };
 
-  static void InsertEdge(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void InsertEdge(CfgInterface &iface, DomTreeT &DT,
+                         const BatchUpdatePtr BUI,
                          const NodePtr From, const NodePtr To) {
     assert((From || DT.isPostDominator()) &&
            "From has to be a valid CFG node or a virtual root");
@@ -667,21 +669,22 @@ public:
       // The unreachable node becomes a new root -- a tree node for it.
       TreeNodePtr VirtualRoot = DT.getNode(NodePtr{});
       FromTN = DT.createChild(From, VirtualRoot);
-      DT.Roots.push_back(CfgTraits::toGeneric(From));
+      DT.Roots.push_back(From);
     }
 
     DT.DFSInfoValid = false;
 
     const TreeNodePtr ToTN = DT.getNode(To);
     if (!ToTN)
-      InsertUnreachable(DT, BUI, FromTN, To);
+      InsertUnreachable(iface, DT, BUI, FromTN, To);
     else
-      InsertReachable(DT, BUI, FromTN, ToTN);
+      InsertReachable(iface, DT, BUI, FromTN, ToTN);
   }
 
   // Determines if some existing root becomes reverse-reachable after the
   // insertion. Rebuilds the whole tree if that situation happens.
-  static bool UpdateRootsBeforeInsertion(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static bool UpdateRootsBeforeInsertion(CfgInterface &iface, DomTreeT &DT,
+                                         const BatchUpdatePtr BUI,
                                          const TreeNodePtr From,
                                          const TreeNodePtr To) {
     assert(DT.isPostDominator() && "This function is only for postdominators");
@@ -689,14 +692,14 @@ public:
     // root.
     if (!DT.isVirtualRoot(To->getIDom())) return false;
 
-    auto RIt = llvm::find(DT.Roots, CfgTraits::toGeneric(To->getBlock()));
+    auto RIt = llvm::find(DT.Roots, To->getBlock());
     if (RIt == DT.Roots.end())
       return false;  // To is not a root, nothing to update.
 
     LLVM_DEBUG(dbgs() << "\t\tAfter the insertion, " << BlockNamePrinter(To)
                       << " is no longer a root\n\t\tRebuilding the tree!!!\n");
 
-    CalculateFromScratch(DT, BUI);
+    CalculateFromScratch(iface, DT, BUI);
     return true;
   }
 
@@ -714,17 +717,18 @@ public:
   // Updates the set of roots after insertion or deletion. This ensures that
   // roots are the same when after a series of updates and when the tree would
   // be built from scratch.
-  static void UpdateRootsAfterUpdate(DomTreeT &DT, const BatchUpdatePtr BUI) {
+  static void UpdateRootsAfterUpdate(CfgInterface &iface, DomTreeT &DT,
+                                     const BatchUpdatePtr BUI) {
     assert(DT.isPostDominator() && "This function is only for postdominators");
 
     // The tree has only trivial roots -- nothing to update.
-    if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [BUI](CfgBlockRef N) {
-          return HasForwardSuccessors(CfgTraits::fromGeneric(N), BUI);
+    if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [&iface, BUI](CfgBlockRef N) {
+          return HasForwardSuccessors(iface, N, BUI);
         }))
       return;
 
     // Recalculate the set of roots.
-    RootsT Roots = FindRoots(DT, BUI);
+    RootsT Roots = FindRoots(iface, DT, BUI);
     if (!isPermutation(DT.Roots, Roots)) {
       // The roots chosen in the CFG have changed. This is because the
       // incremental algorithm does not really know or use the set of roots and
@@ -735,23 +739,25 @@ public:
                         << "The entire tree needs to be rebuilt\n");
       // It may be possible to update the tree without recalculating it, but
       // we do not know yet how to do it, and it happens rarely in practice.
-      CalculateFromScratch(DT, BUI);
+      CalculateFromScratch(iface, DT, BUI);
     }
   }
 
   // Handles insertion to a node already in the dominator tree.
-  static void InsertReachable(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void InsertReachable(CfgInterface &iface, DomTreeT &DT,
+                              const BatchUpdatePtr BUI,
                               const TreeNodePtr From, const TreeNodePtr To) {
     LLVM_DEBUG(dbgs() << "\tReachable " << BlockNamePrinter(From->getBlock())
                       << " -> " << BlockNamePrinter(To->getBlock()) << "\n");
-    if (DT.isPostDominator() && UpdateRootsBeforeInsertion(DT, BUI, From, To))
+    if (DT.isPostDominator() &&
+        UpdateRootsBeforeInsertion(iface, DT, BUI, From, To))
       return;
     // DT.findNCD expects both pointers to be valid. When From is a virtual
     // root, then its CFG block pointer is a nullptr, so we have to 'compute'
     // the NCD manually.
     const NodePtr NCDBlock =
         (From->getBlock() && To->getBlock())
-            ? DT.findNearestCommonDominator(From->getBlock(), To->getBlock())
+            ? DT.findNearestCommonDominatorBlock(From->getBlock(), To->getBlock())
             : NodePtr{};
     assert(NCDBlock || DT.isPostDominator());
     const TreeNodePtr NCD = DT.getNode(NCDBlock);
@@ -799,7 +805,7 @@ public:
         // Invariant: there is an optimal path from `To` to TN with the minimum
         // depth being CurrentLevel.
         for (const NodePtr Succ :
-             getBlockChildren(TN->getBlock(), DT.isPostDominator(), BUI)) {
+             getBlockChildren(iface, TN->getBlock(), DT.isPostDominator(), BUI)) {
           const TreeNodePtr SuccTN = DT.getNode(Succ);
           assert(SuccTN &&
                  "Unreachable successor found at reachable insertion");
@@ -844,11 +850,12 @@ public:
     }
 
     // Finish by updating immediate dominators and levels.
-    UpdateInsertion(DT, BUI, NCD, II);
+    UpdateInsertion(iface, DT, BUI, NCD, II);
   }
 
   // Updates immediate dominators and levels after insertion.
-  static void UpdateInsertion(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void UpdateInsertion(CfgInterface &iface, DomTreeT &DT,
+                              const BatchUpdatePtr BUI,
                               const TreeNodePtr NCD, InsertionInfo &II) {
     LLVM_DEBUG(dbgs() << "Updating NCD = " << BlockNamePrinter(NCD) << "\n");
 
@@ -865,11 +872,12 @@ public:
 #endif
 
     if (DT.isPostDominator())
-      UpdateRootsAfterUpdate(DT, BUI);
+      UpdateRootsAfterUpdate(iface, DT, BUI);
   }
 
   // Handles insertion to previously unreachable nodes.
-  static void InsertUnreachable(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void InsertUnreachable(CfgInterface &iface, DomTreeT &DT,
+                                const BatchUpdatePtr BUI,
                                 const TreeNodePtr From, const NodePtr To) {
     LLVM_DEBUG(dbgs() << "Inserting " << BlockNamePrinter(From)
                       << " -> (unreachable) " << BlockNamePrinter(To) << "\n");
@@ -877,7 +885,7 @@ public:
     // Collect discovered edges to already reachable nodes.
     SmallVector<std::pair<NodePtr, TreeNodePtr>, 8> DiscoveredEdgesToReachable;
     // Discover and connect nodes that became reachable with the insertion.
-    ComputeUnreachableDominators(DT, BUI, To, From, DiscoveredEdgesToReachable);
+    ComputeUnreachableDominators(iface, DT, BUI, To, From, DiscoveredEdgesToReachable);
 
     LLVM_DEBUG(dbgs() << "Inserted " << BlockNamePrinter(From)
                       << " -> (prev unreachable) " << BlockNamePrinter(To)
@@ -889,12 +897,13 @@ public:
       LLVM_DEBUG(dbgs() << "\tInserting discovered connecting edge "
                         << BlockNamePrinter(Edge.first) << " -> "
                         << BlockNamePrinter(Edge.second) << "\n");
-      InsertReachable(DT, BUI, DT.getNode(Edge.first), Edge.second);
+      InsertReachable(iface, DT, BUI, DT.getNode(Edge.first), Edge.second);
     }
   }
 
   // Connects nodes that become reachable with an insertion.
   static void ComputeUnreachableDominators(
+      CfgInterface &iface,
       DomTreeT &DT, const BatchUpdatePtr BUI, const NodePtr Root,
       const TreeNodePtr Incoming,
       SmallVectorImpl<std::pair<NodePtr, TreeNodePtr>>
@@ -911,7 +920,7 @@ public:
       return false;
     };
 
-    SemiNCAInfo SNCA(BUI);
+    GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), BUI);
     SNCA.runDFS(Root, 0, UnreachableDescender, 0);
     SNCA.runSemiNCA(DT);
     SNCA.attachNewSubtree(DT, Incoming);
@@ -919,7 +928,8 @@ public:
     LLVM_DEBUG(dbgs() << "After adding unreachable nodes\n");
   }
 
-  static void DeleteEdge(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void DeleteEdge(CfgInterface &iface, DomTreeT &DT,
+                         const BatchUpdatePtr BUI,
                          const NodePtr From, const NodePtr To) {
     assert(From && To && "Cannot disconnect nullptrs");
     LLVM_DEBUG(dbgs() << "Deleting edge " << BlockNamePrinter(From) << " -> "
@@ -931,8 +941,8 @@ public:
     // The check is O(N), so run it only in debug configuration.
     bool isPostDom = DT.isPostDominator();
     auto IsSuccessor =
-        [BUI, isPostDom](const NodePtr SuccCandidate, const NodePtr Of) {
-      auto Successors = getBlockChildren(Of, isPostDom, BUI);
+        [&iface, BUI, isPostDom](const NodePtr SuccCandidate, const NodePtr Of) {
+      auto Successors = getBlockChildren(iface, Of, isPostDom, BUI);
       return llvm::find(Successors, SuccCandidate) != Successors.end();
     };
     (void)IsSuccessor;
@@ -951,7 +961,7 @@ public:
       return;
     }
 
-    const NodePtr NCDBlock = DT.findNearestCommonDominator(From, To);
+    const NodePtr NCDBlock = DT.findNearestCommonDominatorBlock(From, To);
     const TreeNodePtr NCD = DT.getNode(NCDBlock);
 
     // If To dominates From -- nothing to do.
@@ -964,18 +974,19 @@ public:
 
       // To remains reachable after deletion.
       // (Based on the caption under Figure 4. from [2].)
-      if (FromTN != ToIDom || HasProperSupport(DT, BUI, ToTN))
-        DeleteReachable(DT, BUI, FromTN, ToTN);
+      if (FromTN != ToIDom || HasProperSupport(iface, DT, BUI, ToTN))
+        DeleteReachable(iface, DT, BUI, FromTN, ToTN);
       else
-        DeleteUnreachable(DT, BUI, ToTN);
+        DeleteUnreachable(iface, DT, BUI, ToTN);
     }
 
     if (DT.isPostDominator())
-      UpdateRootsAfterUpdate(DT, BUI);
+      UpdateRootsAfterUpdate(iface, DT, BUI);
   }
 
   // Handles deletions that leave destination nodes reachable.
-  static void DeleteReachable(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void DeleteReachable(CfgInterface &iface, DomTreeT &DT,
+                              const BatchUpdatePtr BUI,
                               const TreeNodePtr FromTN,
                               const TreeNodePtr ToTN) {
     LLVM_DEBUG(dbgs() << "Deleting reachable " << BlockNamePrinter(FromTN)
@@ -985,7 +996,7 @@ public:
     // Find the top of the subtree that needs to be rebuilt.
     // (Based on the lemma 2.6 from [2].)
     const NodePtr ToIDom =
-        DT.findNearestCommonDominator(FromTN->getBlock(), ToTN->getBlock());
+        DT.findNearestCommonDominatorBlock(FromTN->getBlock(), ToTN->getBlock());
     assert(ToIDom || DT.isPostDominator());
     const TreeNodePtr ToIDomTN = DT.getNode(ToIDom);
     assert(ToIDomTN);
@@ -994,7 +1005,7 @@ public:
     // scratch.
     if (!PrevIDomSubTree) {
       LLVM_DEBUG(dbgs() << "The entire tree needs to be rebuilt\n");
-      CalculateFromScratch(DT, BUI);
+      CalculateFromScratch(iface, DT, BUI);
       return;
     }
 
@@ -1007,7 +1018,7 @@ public:
     LLVM_DEBUG(dbgs() << "\tTop of subtree: " << BlockNamePrinter(ToIDomTN)
                       << "\n");
 
-    SemiNCAInfo SNCA(BUI);
+    GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), BUI);
     SNCA.runDFS(ToIDom, 0, DescendBelow, 0);
     LLVM_DEBUG(dbgs() << "\tRunning Semi-NCA\n");
     SNCA.runSemiNCA(DT, Level);
@@ -1016,17 +1027,17 @@ public:
 
   // Checks if a node has proper support, as defined on the page 3 and later
   // explained on the page 7 of [2].
-  static bool HasProperSupport(DomTreeT &DT, const BatchUpdatePtr BUI,
-                               const TreeNodePtr TN) {
+  static bool HasProperSupport(CfgInterface &iface, DomTreeT &DT,
+                               const BatchUpdatePtr BUI, const TreeNodePtr TN) {
     LLVM_DEBUG(dbgs() << "IsReachableFromIDom " << BlockNamePrinter(TN)
                       << "\n");
     for (const NodePtr Pred :
-         getBlockChildren(TN->getBlock(), !DT.isPostDominator(), BUI)) {
+         getBlockChildren(iface, TN->getBlock(), !DT.isPostDominator(), BUI)) {
       LLVM_DEBUG(dbgs() << "\tPred " << BlockNamePrinter(Pred) << "\n");
       if (!DT.getNode(Pred)) continue;
 
       const NodePtr Support =
-          DT.findNearestCommonDominator(TN->getBlock(), Pred);
+          DT.findNearestCommonDominatorBlock(TN->getBlock(), Pred);
       LLVM_DEBUG(dbgs() << "\tSupport " << BlockNamePrinter(Support) << "\n");
       if (Support != TN->getBlock()) {
         LLVM_DEBUG(dbgs() << "\t" << BlockNamePrinter(TN)
@@ -1041,7 +1052,8 @@ public:
 
   // Handle deletions that make destination node unreachable.
   // (Based on the lemma 2.7 from the [2].)
-  static void DeleteUnreachable(DomTreeT &DT, const BatchUpdatePtr BUI,
+  static void DeleteUnreachable(CfgInterface &iface, DomTreeT &DT,
+                                const BatchUpdatePtr BUI,
                                 const TreeNodePtr ToTN) {
     LLVM_DEBUG(dbgs() << "Deleting unreachable subtree "
                       << BlockNamePrinter(ToTN) << "\n");
@@ -1055,8 +1067,8 @@ public:
       LLVM_DEBUG(dbgs() << "\tDeletion made a region reverse-unreachable\n");
       LLVM_DEBUG(dbgs() << "\tAdding new root " << BlockNamePrinter(ToTN)
                         << "\n");
-      DT.Roots.push_back(CfgTraits::toGeneric(ToTN->getBlock()));
-      InsertReachable(DT, BUI, DT.getNode(NodePtr{}), ToTN);
+      DT.Roots.push_back(ToTN->getBlock());
+      InsertReachable(iface, DT, BUI, DT.getNode(NodePtr{}), ToTN);
       return;
     }
 
@@ -1075,7 +1087,7 @@ public:
       return false;
     };
 
-    SemiNCAInfo SNCA(BUI);
+    GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), BUI);
     unsigned LastDFSNum =
         SNCA.runDFS(ToTN->getBlock(), 0, DescendAndCollect, 0);
 
@@ -1086,7 +1098,7 @@ public:
     for (const NodePtr N : AffectedQueue) {
       const TreeNodePtr TN = DT.getNode(N);
       const NodePtr NCDBlock =
-          DT.findNearestCommonDominator(TN->getBlock(), ToTN->getBlock());
+          DT.findNearestCommonDominatorBlock(TN->getBlock(), ToTN->getBlock());
       assert(NCDBlock || DT.isPostDominator());
       const TreeNodePtr NCD = DT.getNode(NCDBlock);
       assert(NCD);
@@ -1100,7 +1112,7 @@ public:
     // Root reached, rebuild the whole tree from scratch.
     if (!MinNode->getIDom()) {
       LLVM_DEBUG(dbgs() << "The entire tree needs to be rebuilt\n");
-      CalculateFromScratch(DT, BUI);
+      CalculateFromScratch(iface, DT, BUI);
       return;
     }
 
@@ -1152,14 +1164,15 @@ public:
     std::swap(*ChIt, IDom->Children.back());
     IDom->Children.pop_back();
 
-    DT.DomTreeNodes.erase(CfgTraits::toGeneric(TN->getBlock()));
+    DT.DomTreeNodes.erase(TN->getBlock());
   }
 
   //~~
   //===--------------------- DomTree Batch Updater --------------------------===
   //~~
 
-  static void ApplyUpdates(DomTreeT &DT, ArrayRef<UpdateT> Updates) {
+  static void ApplyUpdates(CfgInterface &iface, DomTreeT &DT,
+                           ArrayRef<UpdateT> Updates) {
     const size_t NumUpdates = Updates.size();
     if (NumUpdates == 0)
       return;
@@ -1169,9 +1182,9 @@ public:
     if (NumUpdates == 1) {
       const auto &Update = Updates.front();
       if (Update.getKind() == UpdateKind::Insert)
-        DT.insertEdge(Update.getFrom(), Update.getTo());
+        InsertEdge(iface, DT, nullptr, Update.getFrom(), Update.getTo());
       else
-        DT.deleteEdge(Update.getFrom(), Update.getTo());
+        DeleteEdge(iface, DT, nullptr, Update.getFrom(), Update.getTo());
 
       return;
     }
@@ -1216,18 +1229,18 @@ public:
     // Make unittests of the incremental algorithm work
     if (DT.DomTreeNodes.size() <= 100) {
       if (NumLegalized > DT.DomTreeNodes.size())
-        CalculateFromScratch(DT, &BUI);
+        CalculateFromScratch(iface, DT, &BUI);
     } else if (NumLegalized > DT.DomTreeNodes.size() / 40)
-      CalculateFromScratch(DT, &BUI);
+      CalculateFromScratch(iface, DT, &BUI);
 
     // If the DominatorTree was recalculated at some point, stop the batch
     // updates. Full recalculations ignore batch updates and look at the actual
     // CFG.
     for (size_t i = 0; i < NumLegalized && !BUI.IsRecalculated; ++i)
-      ApplyNextUpdate(DT, BUI);
+      ApplyNextUpdate(iface, DT, BUI);
   }
 
-  static void ApplyNextUpdate(DomTreeT &DT, BatchUpdateInfo &BUI) {
+  static void ApplyNextUpdate(CfgInterface &iface, DomTreeT &DT, BatchUpdateInfo &BUI) {
     assert(!BUI.Updates.empty() && "No updates to apply!");
     UpdateT CurrentUpdate = BUI.Updates.pop_back_val();
 #if 0
@@ -1254,9 +1267,9 @@ public:
     if (FP.empty()) BUI.FuturePredecessors.erase(CurrentUpdate.getTo());
 
     if (CurrentUpdate.getKind() == UpdateKind::Insert)
-      InsertEdge(DT, &BUI, CurrentUpdate.getFrom(), CurrentUpdate.getTo());
+      InsertEdge(iface, DT, &BUI, CurrentUpdate.getFrom(), CurrentUpdate.getTo());
     else
-      DeleteEdge(DT, &BUI, CurrentUpdate.getFrom(), CurrentUpdate.getTo());
+      DeleteEdge(iface, DT, &BUI, CurrentUpdate.getFrom(), CurrentUpdate.getTo());
   }
 
   //~~
@@ -1268,7 +1281,7 @@ public:
   // multiple roots - one for each node with no successors and for infinite
   // loops.
   // Running time: O(N).
-  bool verifyRoots(const DomTreeT &DT) {
+  bool verifyRoots(CfgInterface &iface, const DomTreeT &DT) {
     if (!DT.Parent && !DT.Roots.empty()) {
       errs() << "Tree has no parent but has roots!\n";
       errs().flush();
@@ -1282,21 +1295,22 @@ public:
         return false;
       }
 
-      if (DT.getRoot() != GetEntryNode(DT)) {
+      assert(DT.Roots.size() == 1 && DT.Roots[0] == DT.RootNode->getBlock());
+      if (DT.Roots[0] != iface.getEntryBlock(DT.getParent())) {
         errs() << "Tree's root is not its parent's entry node!\n";
         errs().flush();
         return false;
       }
     }
 
-    RootsT ComputedRoots = FindRoots(DT, nullptr);
+    RootsT ComputedRoots = FindRoots(iface, DT, nullptr);
     if (!isPermutation(DT.Roots, ComputedRoots)) {
       errs() << "Tree has different roots than freshly computed ones!\n";
       errs() << "\tPDT roots: ";
-      for (const NodePtr N : CfgTraits::unwrapRange(DT.Roots))
+      for (const NodePtr N : DT.Roots)
         errs() << BlockNamePrinter(N) << ", ";
       errs() << "\n\tComputed roots: ";
-      for (const NodePtr N : CfgTraits::unwrapRange(ComputedRoots))
+      for (const NodePtr N : ComputedRoots)
         errs() << BlockNamePrinter(N) << ", ";
       errs() << "\n";
       errs().flush();
@@ -1590,23 +1604,28 @@ public:
   // Note that this does not check if that the tree construction algorithm is
   // correct and should be only used for fast (but possibly unsound)
   // verification.
-  static bool IsSameAsFreshTree(const DomTreeT &DT) {
-    DomTreeT FreshTree;
-    FreshTree.recalculate(*DT.getParent());
+  static bool IsSameAsFreshTree(CfgInterface &iface, const DomTreeT &DT) {
+    DomTreeT FreshTree(DT.isPostDominator());
+    CalculateFromScratch(iface, FreshTree, nullptr);
     const bool Different = DT.compare(FreshTree);
 
     if (Different) {
       errs() << (DT.isPostDominator() ? "Post" : "")
              << "DominatorTree is different than a freshly computed one!\n"
              << "\tCurrent:\n";
-      DT.print(errs());
+      DT.print(iface, errs());
       errs() << "\n\tFreshly computed tree:\n";
-      FreshTree.print(errs());
+      FreshTree.print(iface, errs());
       errs().flush();
     }
 
     return !Different;
   }
+};
+
+template <typename DomTreeT>
+struct SemiNCAInfo : GenericSemiNCAInfo {
+
 };
 
 template <class DomTreeT>
