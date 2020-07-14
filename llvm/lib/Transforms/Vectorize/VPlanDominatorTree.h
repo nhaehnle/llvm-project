@@ -39,12 +39,14 @@ public:
 
 class VPCfgTraits : public CfgTraits<VPCfgTraitsBase, VPCfgTraits> {
 public:
-  static VPBlockBase *getEntryNode(VPRegionBlock *parent) {
+  static VPBlockBase *getEntryBlock(VPRegionBlock *parent) {
     return parent->getEntry();
   }
   static VPRegionBlock *getBlockParent(VPBlockBase *block) {
     return block->getParent();
   }
+
+  static auto blocks(VPRegionBlock *parent) { return llvm::nodes(parent); }
 
   static auto predecessors(VPBlockBase *block) {
     return llvm::inverse_children<VPBlockBase *>(block);

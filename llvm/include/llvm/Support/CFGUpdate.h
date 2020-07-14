@@ -19,6 +19,7 @@
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/NodeTraits.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace llvm {
@@ -43,9 +44,9 @@ public:
 
   void print(raw_ostream &OS) const {
     OS << (getKind() == UpdateKind::Insert ? "Insert " : "Delete ");
-    getFrom()->printAsOperand(OS, false);
+    NodePrintTraits<NodePtr>::print(OS, getFrom());
     OS << " -> ";
-    getTo()->printAsOperand(OS, false);
+    NodePrintTraits<NodePtr>::print(OS, getTo());
   }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)

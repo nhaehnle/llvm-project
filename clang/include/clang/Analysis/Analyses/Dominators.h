@@ -50,6 +50,8 @@ public:
     return block->getParent();
   }
 
+  static auto blocks(CFG *parent) { return llvm::nodes(parent); }
+
   // Clang's CFG contains nullpointers for unreachable succesors, e.g. when an
   // if statement's condition is always false, it's 'then' branch is represented
   // with a nullptr. Account for this in the predecessors / successors

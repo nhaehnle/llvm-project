@@ -20,6 +20,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/NodeTraits.h"
 #include "llvm/Support/PointerLikeTypeTraits.h"
 #include "llvm/Support/Printable.h"
 
@@ -40,6 +41,7 @@ template <typename Tag> class CfgOpaqueType {
   friend class CfgTraitsBase;
   friend struct DenseMapInfo<CfgOpaqueType<Tag>>;
   friend struct PointerLikeTypeTraits<CfgOpaqueType<Tag>>;
+  friend struct NodePrintTraits<CfgOpaqueType<Tag>>;
   template <typename BaseTraits, typename FullTraits>
   friend class CfgTraits;
 
@@ -108,6 +110,12 @@ struct PointerLikeTypeTraits<CfgOpaqueType<Tag>> {
     return CfgOpaqueType<Tag>(p);
   }
   static constexpr int NumLowBitsAvailable = Tag::NumLowBitsAvailable;
+};
+
+template <> struct NodePrintTraits<CfgBlockRef> {
+  static void print(raw_ostream &out, CfgBlockRef block) {
+    out << block.get();
+  }
 };
 
 /// \brief Base class for CFG traits
@@ -301,6 +309,95 @@ template <typename CfgRelatedTypeT> struct CfgTraitsFor {
 };
 
 class CfgPrinter;
+
+/// \brief Type-erased interface to a graph.
+///
+/// TODO: Clean this up / move it elsewhere / rename block -> node?
+class GraphInterface {
+  virtual void anchor();
+
+public:
+  virtual ~GraphInterface() {}
+
+  virtual CfgBlockRef getEntryBlock(CfgParentRef parent) const = 0;
+  virtual CfgParentRef getBlockParent(CfgBlockRef block) const = 0;
+
+  virtual void appendBlocks(CfgParentRef parent,
+                            SmallVectorImpl<CfgBlockRef> &list) const = 0;
+
+  virtual void appendPredecessors(CfgBlockRef block,
+                                  SmallVectorImpl<CfgBlockRef> &list) const = 0;
+  virtual void appendSuccessors(CfgBlockRef block,
+                                SmallVectorImpl<CfgBlockRef> &list) const = 0;
+  virtual ArrayRef<CfgBlockRef>
+  getPredecessors(CfgBlockRef block,
+                  SmallVectorImpl<CfgBlockRef> &store) const = 0;
+  virtual ArrayRef<CfgBlockRef>
+  getSuccessors(CfgBlockRef block,
+                SmallVectorImpl<CfgBlockRef> &store) const = 0;
+
+  virtual void printBlockName(raw_ostream &out, CfgBlockRef block) const = 0;
+};
+
+template <typename CfgTraitsT>
+class GraphInterfaceImpl : public GraphInterface {
+public:
+  using CfgTraits = CfgTraitsT;
+  using ParentType = typename CfgTraits::ParentType;
+  using BlockRef = typename CfgTraits::BlockRef;
+
+  CfgBlockRef getEntryBlock(CfgParentRef parent) const final {
+    return CfgTraits::toGeneric(
+        CfgTraits::getEntryBlock(CfgTraits::fromGeneric(parent)));
+  }
+  CfgParentRef getBlockParent(CfgBlockRef block) const final {
+    return CfgTraits::toGeneric(
+        CfgTraits::getBlockParent(CfgTraits::fromGeneric(block)));
+  }
+
+  void appendBlocks(CfgParentRef parent,
+                    SmallVectorImpl<CfgBlockRef> &list) const final {
+    auto range = CfgTraits::blocks(CfgTraits::fromGeneric(parent));
+    list.insert(list.end(), CfgTraits::wrapIterator(std::begin(range)),
+                CfgTraits::wrapIterator(std::end(range)));
+  }
+
+  void appendPredecessors(CfgBlockRef block,
+                          SmallVectorImpl<CfgBlockRef> &list) const final {
+    auto range = CfgTraits::predecessors(CfgTraits::fromGeneric(block));
+    list.insert(list.end(), CfgTraits::wrapIterator(std::begin(range)),
+                CfgTraits::wrapIterator(std::end(range)));
+  }
+  void appendSuccessors(CfgBlockRef block,
+                        SmallVectorImpl<CfgBlockRef> &list) const final {
+    auto range = CfgTraits::successors(CfgTraits::fromGeneric(block));
+    list.insert(list.end(), CfgTraits::wrapIterator(std::begin(range)),
+                CfgTraits::wrapIterator(std::end(range)));
+  }
+  ArrayRef<CfgBlockRef>
+  getPredecessors(CfgBlockRef block,
+                  SmallVectorImpl<CfgBlockRef> &store) const final {
+    // TODO: Can this be optimized for concrete CFGs that already have the
+    //       "right" in-memory representation of predecessors / successors?
+    store.clear();
+    appendPredecessors(block, store);
+    return store;
+  }
+  ArrayRef<CfgBlockRef>
+  getSuccessors(CfgBlockRef block,
+                SmallVectorImpl<CfgBlockRef> &store) const final {
+    // TODO: Can this be optimized for concrete CFGs that already have the
+    //       "right" in-memory representation of predecessors / successors?
+    store.clear();
+    appendSuccessors(block, store);
+    return store;
+  }
+
+  void printBlockName(raw_ostream &out, CfgBlockRef block) const final {
+    // TODO -- fixme, this should refer to CfgTraits?
+    NodePrintTraits<BlockRef>::print(out, CfgTraits::fromGeneric(block));
+  }
+};
 
 /// \brief Type-erased "CFG traits"
 ///

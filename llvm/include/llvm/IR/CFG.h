@@ -26,6 +26,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CfgTraits.h"
+#include "llvm/Support/NodeTraits.h"
 #include <cassert>
 #include <cstddef>
 #include <iterator>
@@ -493,6 +494,12 @@ public:
 };
 
 template <> struct CfgTraitsFor<BasicBlock> { using CfgTraits = IrCfgTraits; };
+
+template <> struct NodePrintTraits<const BasicBlock *> {
+  static void print(raw_ostream &out, const BasicBlock *bb) {
+    bb->printAsOperand(out, false);
+  }
+};
 
 } // end namespace llvm
 

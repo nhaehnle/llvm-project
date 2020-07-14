@@ -117,7 +117,7 @@ public:
     return C;
   }
 
-  void print(CfgPrinter &printer, raw_ostream &out) const;
+  void print(const GraphInterface &iface, raw_ostream &out) const;
 
 private:
   // Return true if this node is dominated by other. Use this only if DFS info
@@ -184,8 +184,7 @@ public:
   }
 
   void print(raw_ostream &out) const {
-    GenericDomTreeNodeBase::print(
-        CfgPrinterImpl<CfgTraits>(CfgInterfaceImpl<CfgTraits>()), out);
+    GenericDomTreeNodeBase::print(GraphInterfaceImpl<CfgTraits>(), out);
   }
 };
 
@@ -360,7 +359,7 @@ protected:
 
   GenericDomTreeNodeBase *setNewRoot(CfgBlockRef bb);
 
-  void print(CfgPrinter &printer, raw_ostream &O) const;
+  void print(const GraphInterface &printer, raw_ostream &O) const;
 
 private:
   /// Wipe this tree's state without releasing any resources.
@@ -692,9 +691,7 @@ public:
   /// print - Convert to human readable form
   ///
   void print(raw_ostream &O) const {
-    CfgInterfaceImpl<CfgTraits> iface(getParent());
-    CfgPrinterImpl<CfgTraits> printer(iface);
-    GenericDominatorTreeBase::print(printer, O);
+    GenericDominatorTreeBase::print(GraphInterfaceImpl<CfgTraits>(), O);
   }
 
 public:

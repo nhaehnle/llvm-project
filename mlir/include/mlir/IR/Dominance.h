@@ -35,6 +35,8 @@ public:
   static Block *getEntryBlock(Region *parent) { return &parent->front(); }
   static Region *getBlockParent(Block *block) { return block->getParent(); }
 
+  static auto blocks(Region *parent) { return llvm::nodes(parent); }
+
   static auto predecessors(Block *block) {
     return llvm::inverse_children<Block *>(block);
   }

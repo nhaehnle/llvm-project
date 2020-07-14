@@ -71,9 +71,10 @@ void GenericDomTreeNodeBase::UpdateLevel() {
   }
 }
 
-void GenericDomTreeNodeBase::print(CfgPrinter &printer, raw_ostream &out) const {
+void GenericDomTreeNodeBase::print(const GraphInterface &iface,
+                                   raw_ostream &out) const {
   if (getBlock())
-    printer.printBlockName(out, getBlock());
+    iface.printBlockName(out, getBlock());
   else
     out << " <<exit node>>";
 
@@ -337,7 +338,7 @@ GenericDomTreeNodeBase *GenericDominatorTreeBase::setNewRoot(CfgBlockRef bb) {
   return RootNode;
 }
 
-static void printDomTree(CfgPrinter &printer,
+static void printDomTree(const GraphInterface &printer,
                          const GenericDomTreeNodeBase *node, raw_ostream &out,
                          unsigned level) {
   out.indent(2 * level) << "[" << level<< "] ";
@@ -346,7 +347,7 @@ static void printDomTree(CfgPrinter &printer,
     printDomTree(printer, child, out, level + 1);
 }
 
-void GenericDominatorTreeBase::print(CfgPrinter &printer, raw_ostream &O) const {
+void GenericDominatorTreeBase::print(const GraphInterface &printer, raw_ostream &O) const {
   O << "=============================--------------------------------\n";
   if (isPostDominator())
     O << "Inorder PostDominator Tree: ";

@@ -74,7 +74,7 @@ private:
   // a dummy element.
   std::vector<NodePtr> NumToNode = {NodePtr{}};
   DenseMap<NodePtr, InfoRec> NodeToInfo;
-  CfgInterface &m_iface;
+  const GraphInterface &m_iface;
   const bool IsPostDom;
 
 public:
@@ -105,7 +105,7 @@ public:
   using BatchUpdatePtr = BatchUpdateInfo *;
 
   // If BUI is a NodePtr{}, then there's no batch update in progress.
-  GenericSemiNCAInfo(CfgInterface &iface, bool isPostDominator,
+  GenericSemiNCAInfo(const GraphInterface &iface, bool isPostDominator,
                      BatchUpdatePtr BUI)
       : m_iface(iface), IsPostDom(isPostDominator), BatchUpdates(BUI) {}
 
@@ -120,7 +120,7 @@ private:
   /// Get the "children" of \p node corresponding to the state of the CFG
   /// before applying \p bui (which may be null).
   static SmallVector<BlockRef, 8> getBlockChildren(
-      CfgInterface &iface, BlockRef node, bool inverse, BatchUpdatePtr bui) {
+      const GraphInterface &iface, BlockRef node, bool inverse, BatchUpdatePtr bui) {
     SmallVector<BlockRef, 8> result;
 
     if (inverse) {
@@ -196,19 +196,19 @@ private:
   static bool AlwaysDescend(NodePtr, NodePtr) { return true; }
 
   struct BlockNamePrinter {
-    CfgInterface &m_iface;
+    const GraphInterface &m_iface;
     NodePtr N;
 
-    BlockNamePrinter(CfgInterface &iface, NodePtr Block)
+    BlockNamePrinter(const GraphInterface &iface, NodePtr Block)
         : m_iface(iface), N(Block) {}
-    BlockNamePrinter(CfgInterface &iface, TreeNodePtr TN)
+    BlockNamePrinter(const GraphInterface &iface, TreeNodePtr TN)
         : m_iface(iface), N(TN ? TN->getBlock() : NodePtr{}) {}
 
     friend raw_ostream &operator<<(raw_ostream &O, const BlockNamePrinter &BP) {
       if (!BP.N)
         O << "nullptr";
       else
-        BP.m_iface.makePrinter()->printBlockName(O, BP.N);
+        BP.m_iface.printBlockName(O, BP.N);
 
       return O;
     }
@@ -373,7 +373,7 @@ private:
   // For postdominators, nodes with no forward successors are trivial roots that
   // are always selected as tree roots. Roots with forward successors correspond
   // to CFG nodes within infinite loops.
-  static bool HasForwardSuccessors(CfgInterface &iface, const NodePtr N,
+  static bool HasForwardSuccessors(const GraphInterface &iface, const NodePtr N,
                                    BatchUpdatePtr BUI) {
     assert(N && "N must be a valid node");
     return !getBlockChildren(iface, N, false, BUI).empty();
@@ -382,7 +382,7 @@ private:
   // Finds all roots without relaying on the set of roots already stored in the
   // tree.
   // We define roots to be some non-redundant set of the CFG nodes
-  static RootsT FindRoots(CfgInterface &iface, const DomTreeT &DT,
+  static RootsT FindRoots(const GraphInterface &iface, const DomTreeT &DT,
                           BatchUpdatePtr BUI) {
     assert(DT.Parent && "Parent pointer is not set");
     RootsT Roots;
@@ -511,7 +511,7 @@ private:
   // the non-trivial roots are reverse-reachable from other non-trivial roots,
   // which makes them redundant. This function removes them from the set of
   // input roots.
-  static void RemoveRedundantRoots(CfgInterface &iface, const DomTreeT &DT,
+  static void RemoveRedundantRoots(const GraphInterface &iface, const DomTreeT &DT,
                                    BatchUpdatePtr BUI, RootsT &Roots) {
     assert(DT.isPostDominator() && "This function is for postdominators only");
     LLVM_DEBUG(dbgs() << "Removing redundant roots\n");
@@ -567,7 +567,7 @@ private:
   }
 
 public:
-  static void CalculateFromScratch(CfgInterface &iface, DomTreeT &DT,
+  static void CalculateFromScratch(const GraphInterface &iface, DomTreeT &DT,
                                    BatchUpdatePtr BUI) {
     auto Parent = DT.Parent;
     DT.reset();
@@ -654,9 +654,11 @@ public:
 #endif
   };
 
-  static void InsertEdge(CfgInterface &iface, DomTreeT &DT,
+  static void InsertEdge(const GraphInterface &iface, DomTreeT &DT,
                          const BatchUpdatePtr BUI,
-                         const NodePtr From, const NodePtr To) {
+                         NodePtr From, NodePtr To) {
+    if (DT.isPostDominator())
+      std::swap(From, To);
     assert((From || DT.isPostDominator()) &&
            "From has to be a valid CFG node or a virtual root");
     assert(To && "Cannot be a nullptr");
@@ -686,7 +688,7 @@ public:
 
   // Determines if some existing root becomes reverse-reachable after the
   // insertion. Rebuilds the whole tree if that situation happens.
-  static bool UpdateRootsBeforeInsertion(CfgInterface &iface, DomTreeT &DT,
+  static bool UpdateRootsBeforeInsertion(const GraphInterface &iface, DomTreeT &DT,
                                          const BatchUpdatePtr BUI,
                                          const TreeNodePtr From,
                                          const TreeNodePtr To) {
@@ -720,7 +722,7 @@ public:
   // Updates the set of roots after insertion or deletion. This ensures that
   // roots are the same when after a series of updates and when the tree would
   // be built from scratch.
-  static void UpdateRootsAfterUpdate(CfgInterface &iface, DomTreeT &DT,
+  static void UpdateRootsAfterUpdate(const GraphInterface &iface, DomTreeT &DT,
                                      const BatchUpdatePtr BUI) {
     assert(DT.isPostDominator() && "This function is only for postdominators");
 
@@ -747,7 +749,7 @@ public:
   }
 
   // Handles insertion to a node already in the dominator tree.
-  static void InsertReachable(CfgInterface &iface, DomTreeT &DT,
+  static void InsertReachable(const GraphInterface &iface, DomTreeT &DT,
                               const BatchUpdatePtr BUI,
                               const TreeNodePtr From, const TreeNodePtr To) {
     LLVM_DEBUG(dbgs() << "\tReachable " << BlockNamePrinter(iface, From->getBlock())
@@ -857,7 +859,7 @@ public:
   }
 
   // Updates immediate dominators and levels after insertion.
-  static void UpdateInsertion(CfgInterface &iface, DomTreeT &DT,
+  static void UpdateInsertion(const GraphInterface &iface, DomTreeT &DT,
                               const BatchUpdatePtr BUI,
                               const TreeNodePtr NCD, InsertionInfo &II) {
     LLVM_DEBUG(dbgs() << "Updating NCD = " << BlockNamePrinter(iface, NCD) << "\n");
@@ -879,7 +881,7 @@ public:
   }
 
   // Handles insertion to previously unreachable nodes.
-  static void InsertUnreachable(CfgInterface &iface, DomTreeT &DT,
+  static void InsertUnreachable(const GraphInterface &iface, DomTreeT &DT,
                                 const BatchUpdatePtr BUI,
                                 const TreeNodePtr From, const NodePtr To) {
     LLVM_DEBUG(dbgs() << "Inserting " << BlockNamePrinter(iface, From)
@@ -906,7 +908,7 @@ public:
 
   // Connects nodes that become reachable with an insertion.
   static void ComputeUnreachableDominators(
-      CfgInterface &iface,
+      const GraphInterface &iface,
       DomTreeT &DT, const BatchUpdatePtr BUI, const NodePtr Root,
       const TreeNodePtr Incoming,
       SmallVectorImpl<std::pair<NodePtr, TreeNodePtr>>
@@ -931,9 +933,11 @@ public:
     LLVM_DEBUG(dbgs() << "After adding unreachable nodes\n");
   }
 
-  static void DeleteEdge(CfgInterface &iface, DomTreeT &DT,
+  static void DeleteEdge(const GraphInterface &iface, DomTreeT &DT,
                          const BatchUpdatePtr BUI,
-                         const NodePtr From, const NodePtr To) {
+                         NodePtr From, NodePtr To) {
+    if (DT.isPostDominator())
+      std::swap(From, To);
     assert(From && To && "Cannot disconnect nullptrs");
     LLVM_DEBUG(dbgs() << "Deleting edge " << BlockNamePrinter(iface, From) << " -> "
                       << BlockNamePrinter(iface, To) << "\n");
@@ -988,7 +992,7 @@ public:
   }
 
   // Handles deletions that leave destination nodes reachable.
-  static void DeleteReachable(CfgInterface &iface, DomTreeT &DT,
+  static void DeleteReachable(const GraphInterface &iface, DomTreeT &DT,
                               const BatchUpdatePtr BUI,
                               const TreeNodePtr FromTN,
                               const TreeNodePtr ToTN) {
@@ -1030,7 +1034,7 @@ public:
 
   // Checks if a node has proper support, as defined on the page 3 and later
   // explained on the page 7 of [2].
-  static bool HasProperSupport(CfgInterface &iface, DomTreeT &DT,
+  static bool HasProperSupport(const GraphInterface &iface, DomTreeT &DT,
                                const BatchUpdatePtr BUI, const TreeNodePtr TN) {
     LLVM_DEBUG(dbgs() << "IsReachableFromIDom " << BlockNamePrinter(iface, TN)
                       << "\n");
@@ -1055,7 +1059,7 @@ public:
 
   // Handle deletions that make destination node unreachable.
   // (Based on the lemma 2.7 from the [2].)
-  static void DeleteUnreachable(CfgInterface &iface, DomTreeT &DT,
+  static void DeleteUnreachable(const GraphInterface &iface, DomTreeT &DT,
                                 const BatchUpdatePtr BUI,
                                 const TreeNodePtr ToTN) {
     LLVM_DEBUG(dbgs() << "Deleting unreachable subtree "
@@ -1174,7 +1178,7 @@ public:
   //===--------------------- DomTree Batch Updater --------------------------===
   //~~
 
-  static void ApplyUpdates(CfgInterface &iface, DomTreeT &DT,
+  static void ApplyUpdates(const GraphInterface &iface, DomTreeT &DT,
                            ArrayRef<UpdateT> Updates) {
     const size_t NumUpdates = Updates.size();
     if (NumUpdates == 0)
@@ -1243,7 +1247,7 @@ public:
       ApplyNextUpdate(iface, DT, BUI);
   }
 
-  static void ApplyNextUpdate(CfgInterface &iface, DomTreeT &DT, BatchUpdateInfo &BUI) {
+  static void ApplyNextUpdate(const GraphInterface &iface, DomTreeT &DT, BatchUpdateInfo &BUI) {
     assert(!BUI.Updates.empty() && "No updates to apply!");
     UpdateT CurrentUpdate = BUI.Updates.pop_back_val();
 #if 0
@@ -1361,7 +1365,7 @@ public:
   // Check if for every parent with a level L in the tree all of its children
   // have level L + 1.
   // Running time: O(N).
-  static bool VerifyLevels(CfgInterface &iface, const DomTreeT &DT) {
+  static bool VerifyLevels(const GraphInterface &iface, const DomTreeT &DT) {
     for (auto &NodeToTN : DT.DomTreeNodes) {
       const TreeNodePtr TN = NodeToTN.second.get();
       const NodePtr BB = TN->getBlock();
@@ -1393,7 +1397,7 @@ public:
   // Check if the computed DFS numbers are correct. Note that DFS info may not
   // be valid, and when that is the case, we don't verify the numbers.
   // Running time: O(N log(N)).
-  static bool VerifyDFSNumbers(CfgInterface &iface, const DomTreeT &DT) {
+  static bool VerifyDFSNumbers(const GraphInterface &iface, const DomTreeT &DT) {
     if (!DT.DFSInfoValid || !DT.Parent)
       return true;
 
@@ -1602,19 +1606,19 @@ public:
   // Note that this does not check if that the tree construction algorithm is
   // correct and should be only used for fast (but possibly unsound)
   // verification.
-  static bool IsSameAsFreshTree(CfgInterface &iface, const DomTreeT &DT) {
+  static bool IsSameAsFreshTree(const GraphInterface &iface, const DomTreeT &DT) {
     GenericDominatorTreeBase FreshTree(DT.isPostDominator());
+    FreshTree.Parent = DT.Parent;
     CalculateFromScratch(iface, FreshTree, nullptr);
     const bool Different = DT.compare(FreshTree);
 
     if (Different) {
-      auto printer = iface.makePrinter();
       errs() << (DT.isPostDominator() ? "Post" : "")
              << "DominatorTree is different than a freshly computed one!\n"
              << "\tCurrent:\n";
-      DT.print(*printer, errs());
+      DT.print(iface, errs());
       errs() << "\n\tFreshly computed tree:\n";
-      FreshTree.print(*printer, errs());
+      FreshTree.print(iface, errs());
       errs().flush();
     }
 
@@ -1641,7 +1645,7 @@ struct SemiNCAInfoHelper {
 
 template <class DomTreeT>
 void Calculate(DomTreeT &DT) {
-  CfgInterfaceImpl<typename DomTreeT::CfgTraits> iface(DT.getParent());
+  GraphInterfaceImpl<typename DomTreeT::CfgTraits> iface;
   GenericSemiNCAInfo::CalculateFromScratch(iface, DT, nullptr);
 }
 
@@ -1649,7 +1653,7 @@ template <typename DomTreeT>
 void CalculateWithUpdates(DomTreeT &DT,
                           ArrayRef<typename DomTreeT::UpdateType> concreteUpdates) {
   using CfgTraits = typename DomTreeT::CfgTraits;
-  CfgInterfaceImpl<CfgTraits> iface(DT.getParent());
+  GraphInterfaceImpl<CfgTraits> iface;
 
   SmallVector<cfg::Update<CfgBlockRef>, 32> updates;
   SemiNCAInfoHelper<CfgTraits>::appendWrappedUpdates(concreteUpdates, updates);
@@ -1657,8 +1661,9 @@ void CalculateWithUpdates(DomTreeT &DT,
   // TODO: Move BUI creation in common method, reuse in ApplyUpdates.
   GenericSemiNCAInfo::BatchUpdateInfo BUI;
   LLVM_DEBUG(dbgs() << "Legalizing " << updates.size() << " updates\n");
-  cfg::LegalizeUpdates<typename DomTreeT::NodePtr>(updates, BUI.Updates,
-                                                   DomTreeT::IsPostDominator);
+  cfg::LegalizeUpdates<CfgBlockRef>(updates, BUI.Updates,
+                                    DomTreeT::IsPostDominator);
+
   const size_t NumLegalized = BUI.Updates.size();
   BUI.FutureSuccessors.reserve(NumLegalized);
   BUI.FuturePredecessors.reserve(NumLegalized);
@@ -1673,24 +1678,26 @@ void CalculateWithUpdates(DomTreeT &DT,
 template <class DomTreeT>
 void InsertEdge(DomTreeT &DT, typename DomTreeT::NodePtr From,
                 typename DomTreeT::NodePtr To) {
-  if (DT.isPostDominator()) std::swap(From, To);
-  CfgInterfaceImpl<typename DomTreeT::CfgTraits> iface(DT.getParent());
-  GenericSemiNCAInfo::InsertEdge(iface, DT, nullptr, From, To);
+  using CfgTraits = typename DomTreeT::CfgTraits;
+  GraphInterfaceImpl<CfgTraits> iface;
+  GenericSemiNCAInfo::InsertEdge(iface, DT, nullptr, CfgTraits::toGeneric(From),
+                                 CfgTraits::toGeneric(To));
 }
 
 template <class DomTreeT>
 void DeleteEdge(DomTreeT &DT, typename DomTreeT::NodePtr From,
                 typename DomTreeT::NodePtr To) {
-  if (DT.isPostDominator()) std::swap(From, To);
-  CfgInterfaceImpl<typename DomTreeT::CfgTraits> iface(DT.getParent());
-  GenericSemiNCAInfo::DeleteEdge(iface, DT, nullptr, From, To);
+  using CfgTraits = typename DomTreeT::CfgTraits;
+  GraphInterfaceImpl<CfgTraits> iface;
+  GenericSemiNCAInfo::DeleteEdge(iface, DT, nullptr, CfgTraits::toGeneric(From),
+                                 CfgTraits::toGeneric(To));
 }
 
 template <class DomTreeT>
 void ApplyUpdates(DomTreeT &DT,
                   ArrayRef<typename DomTreeT::UpdateType> concreteUpdates) {
   using CfgTraits = typename DomTreeT::CfgTraits;
-  CfgInterfaceImpl<CfgTraits> iface(DT.getParent());
+  GraphInterfaceImpl<CfgTraits> iface;
   SmallVector<cfg::Update<CfgBlockRef>, 32> updates;
   SemiNCAInfoHelper<CfgTraits>::appendWrappedUpdates(concreteUpdates, updates);
   GenericSemiNCAInfo::ApplyUpdates(iface, DT, updates);
@@ -1699,17 +1706,17 @@ void ApplyUpdates(DomTreeT &DT,
 template <class DomTreeT>
 bool Verify(const DomTreeT &DT, typename DomTreeT::VerificationLevel VL) {
   using CfgTraits = typename DomTreeT::CfgTraits;
-  CfgInterfaceImpl<CfgTraits> iface(DT.getParent());
+  GraphInterfaceImpl<CfgTraits> iface;
   GenericSemiNCAInfo SNCA(iface, DT.isPostDominator(), nullptr);
 
   // Simplist check is to compare against a new tree. This will also
   // usefully print the old and new trees, if they are different.
-  if (!SNCA.IsSameAsFreshTree(DT))
+  if (!SNCA.IsSameAsFreshTree(iface, DT))
     return false;
 
   // Common checks to verify the properties of the tree. O(N log N) at worst.
   if (!SNCA.verifyRoots(DT) || !SNCA.verifyReachability(DT) ||
-      !SNCA.VerifyLevels(DT) || !SNCA.VerifyDFSNumbers(DT))
+      !SNCA.VerifyLevels(iface, DT) || !SNCA.VerifyDFSNumbers(iface, DT))
     return false;
 
   // Extra checks depending on VerificationLevel. Up to O(N^3).

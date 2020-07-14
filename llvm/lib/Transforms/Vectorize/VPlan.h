@@ -1531,6 +1531,12 @@ struct GraphTraits<Inverse<VPRegionBlock *>>
   }
 };
 
+template <> struct NodePrintTraits<const VPBlockBase *> {
+  static void print(raw_ostream &out, const VPBlockBase *block) {
+    block->printAsOperand(out, false);
+  }
+};
+
 /// VPlan models a candidate for vectorization, encoding various decisions take
 /// to produce efficient output IR, including which branches, basic-blocks and
 /// output IR instructions to generate, and their cost. VPlan holds a

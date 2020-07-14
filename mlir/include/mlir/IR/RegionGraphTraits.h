@@ -17,6 +17,7 @@
 
 #include "mlir/IR/Region.h"
 #include "llvm/ADT/GraphTraits.h"
+#include "llvm/Support/NodeTraits.h"
 
 namespace llvm {
 template <> struct GraphTraits<mlir::Block *> {
@@ -77,6 +78,12 @@ struct GraphTraits<Inverse<mlir::Region *>>
   }
   static nodes_iterator nodes_end(GraphType fn) {
     return nodes_iterator(fn.Graph->end());
+  }
+};
+
+template <> struct NodePrintTraits<mlir::Block *> {
+  static void print(raw_ostream &out, mlir::Block *block) {
+    block->printAsOperand(out, false);
   }
 };
 

@@ -22,6 +22,7 @@
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/MC/LaneBitmask.h"
 #include "llvm/Support/BranchProbability.h"
+#include "llvm/Support/NodeTraits.h"
 #include <cassert>
 #include <cstdint>
 #include <functional>
@@ -1001,6 +1002,12 @@ template <> struct GraphTraits<Inverse<const MachineBasicBlock*>> {
 
   static ChildIteratorType child_begin(NodeRef N) { return N->pred_begin(); }
   static ChildIteratorType child_end(NodeRef N) { return N->pred_end(); }
+};
+
+template <> struct NodePrintTraits<const MachineBasicBlock *> {
+  static void print(raw_ostream &out, const MachineBasicBlock *mbb) {
+    mbb->printAsOperand(out, false);
+  }
 };
 
 /// MachineInstrSpan provides an interface to get an iteration range

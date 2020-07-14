@@ -26,6 +26,7 @@
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/NodeTraits.h"
 #include "llvm/Support/raw_ostream.h"
 #include <bitset>
 #include <cassert>
@@ -1085,7 +1086,7 @@ public:
   void printTerminatorJson(raw_ostream &Out, const LangOptions &LO,
                            bool AddQuotes) const;
 
-  void printAsOperand(raw_ostream &OS, bool /*PrintType*/) {
+  void printAsOperand(raw_ostream &OS, bool /*PrintType*/) const {
     OS << "BB#" << getBlockID();
   }
 
@@ -1574,6 +1575,12 @@ template <> struct GraphTraits<Inverse<const ::clang::CFG *>>
 
   static nodes_iterator nodes_end(const ::clang::CFG* F) {
     return F->nodes_end();
+  }
+};
+
+template <> struct NodePrintTraits<const ::clang::CFGBlock *> {
+  static void print(raw_ostream &out, const ::clang::CFGBlock *block) {
+    block->printAsOperand(out, false);
   }
 };
 

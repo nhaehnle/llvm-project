@@ -10,5 +10,7 @@
 
 using namespace llvm;
 
+void GraphInterface::anchor() {}
+
 void CfgInterface::anchor() {}
 void CfgPrinter::anchor() {}
