@@ -119,8 +119,12 @@ public:
 private:
   /// Get the "children" of \p node corresponding to the state of the CFG
   /// before applying \p bui (which may be null).
+  ///
+  /// \todo Cleanup the interface regarding "isPostDom" -- this is incredibly
+  ///       ugly.
   static SmallVector<BlockRef, 8> getBlockChildren(
-      const GraphInterface &iface, BlockRef node, bool inverse, BatchUpdatePtr bui) {
+      const GraphInterface &iface, BlockRef node, bool inverse,
+      BatchUpdatePtr bui, bool isPostDom) {
     SmallVector<BlockRef, 8> result;
 
     if (inverse) {
@@ -137,7 +141,7 @@ private:
     // CFG children are actually its *most current* children, and we have to
     // reverse-apply the future updates to get the node's children at the
     // point in time the update was performed.
-    auto &futureChildren = (inverse != IsPostDom) ? bui->FuturePredecessors
+    auto &futureChildren = (inverse != isPostDom) ? bui->FuturePredecessors
                                                   : bui->FutureSuccessors;
 
     auto fcIt = futureChildren.find(node);
@@ -240,7 +244,7 @@ private:
 
       const bool Direction = IsReverse != IsPostDom;  // XOR.
       for (const NodePtr Succ :
-           getBlockChildren(m_iface, BB, Direction, BatchUpdates)) {
+           getBlockChildren(m_iface, BB, Direction, BatchUpdates, IsPostDom)) {
         const auto SIT = NodeToInfo.find(Succ);
         // Don't visit nodes more than once but remember to collect
         // ReverseChildren.
@@ -374,9 +378,9 @@ private:
   // are always selected as tree roots. Roots with forward successors correspond
   // to CFG nodes within infinite loops.
   static bool HasForwardSuccessors(const GraphInterface &iface, const NodePtr N,
-                                   BatchUpdatePtr BUI) {
+                                   BatchUpdatePtr BUI, bool isPostDom) {
     assert(N && "N must be a valid node");
-    return !getBlockChildren(iface, N, false, BUI).empty();
+    return !getBlockChildren(iface, N, false, BUI, isPostDom).empty();
   }
 
   // Finds all roots without relaying on the set of roots already stored in the
@@ -414,7 +418,7 @@ private:
     for (const NodePtr N : blocks) {
       ++Total;
       // If it has no *successors*, it is definitely a root.
-      if (!HasForwardSuccessors(iface, N, BUI)) {
+      if (!HasForwardSuccessors(iface, N, BUI, DT.isPostDominator())) {
         Roots.push_back(N);
         // Run DFS not to walk this part of CFG later.
         Num = SNCA.runDFS(N, Num, AlwaysDescend, 1);
@@ -521,7 +525,7 @@ private:
     for (unsigned i = 0; i < Roots.size(); ++i) {
       auto &Root = Roots[i];
       // Trivial roots are always non-redundant.
-      if (!HasForwardSuccessors(iface, Root, BUI)) continue;
+      if (!HasForwardSuccessors(iface, Root, BUI, DT.isPostDominator())) continue;
       LLVM_DEBUG(dbgs() << "\tChecking if "
                         << BlockNamePrinter(iface, Root)
                         << " remains a root\n");
@@ -657,8 +661,6 @@ public:
   static void InsertEdge(const GraphInterface &iface, DomTreeT &DT,
                          const BatchUpdatePtr BUI,
                          NodePtr From, NodePtr To) {
-    if (DT.isPostDominator())
-      std::swap(From, To);
     assert((From || DT.isPostDominator()) &&
            "From has to be a valid CFG node or a virtual root");
     assert(To && "Cannot be a nullptr");
@@ -727,8 +729,9 @@ public:
     assert(DT.isPostDominator() && "This function is only for postdominators");
 
     // The tree has only trivial roots -- nothing to update.
-    if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [&iface, BUI](CfgBlockRef N) {
-          return HasForwardSuccessors(iface, N, BUI);
+    const bool isPostDom = DT.isPostDominator();
+    if (std::none_of(DT.Roots.begin(), DT.Roots.end(), [&iface, BUI, isPostDom](CfgBlockRef N) {
+          return HasForwardSuccessors(iface, N, BUI, isPostDom);
         }))
       return;
 
@@ -810,7 +813,7 @@ public:
         // Invariant: there is an optimal path from `To` to TN with the minimum
         // depth being CurrentLevel.
         for (const NodePtr Succ :
-             getBlockChildren(iface, TN->getBlock(), DT.isPostDominator(), BUI)) {
+             getBlockChildren(iface, TN->getBlock(), DT.isPostDominator(), BUI, DT.isPostDominator())) {
           const TreeNodePtr SuccTN = DT.getNode(Succ);
           assert(SuccTN &&
                  "Unreachable successor found at reachable insertion");
@@ -936,8 +939,6 @@ public:
   static void DeleteEdge(const GraphInterface &iface, DomTreeT &DT,
                          const BatchUpdatePtr BUI,
                          NodePtr From, NodePtr To) {
-    if (DT.isPostDominator())
-      std::swap(From, To);
     assert(From && To && "Cannot disconnect nullptrs");
     LLVM_DEBUG(dbgs() << "Deleting edge " << BlockNamePrinter(iface, From) << " -> "
                       << BlockNamePrinter(iface, To) << "\n");
@@ -949,7 +950,7 @@ public:
     bool isPostDom = DT.isPostDominator();
     auto IsSuccessor =
         [&iface, BUI, isPostDom](const NodePtr SuccCandidate, const NodePtr Of) {
-      auto Successors = getBlockChildren(iface, Of, isPostDom, BUI);
+      auto Successors = getBlockChildren(iface, Of, isPostDom, BUI, isPostDom);
       return llvm::find(Successors, SuccCandidate) != Successors.end();
     };
     (void)IsSuccessor;
@@ -1039,7 +1040,7 @@ public:
     LLVM_DEBUG(dbgs() << "IsReachableFromIDom " << BlockNamePrinter(iface, TN)
                       << "\n");
     for (const NodePtr Pred :
-         getBlockChildren(iface, TN->getBlock(), !DT.isPostDominator(), BUI)) {
+         getBlockChildren(iface, TN->getBlock(), !DT.isPostDominator(), BUI, DT.isPostDominator())) {
       LLVM_DEBUG(dbgs() << "\tPred " << BlockNamePrinter(iface, Pred) << "\n");
       if (!DT.getNode(Pred)) continue;
 
@@ -1188,10 +1189,14 @@ public:
     // machinery.
     if (NumUpdates == 1) {
       const auto &Update = Updates.front();
+      CfgBlockRef from = Update.getFrom();
+      CfgBlockRef to = Update.getTo();
+      if (DT.isPostDominator())
+        std::swap(from, to);
       if (Update.getKind() == UpdateKind::Insert)
-        InsertEdge(iface, DT, nullptr, Update.getFrom(), Update.getTo());
+        InsertEdge(iface, DT, nullptr, from, to);
       else
-        DeleteEdge(iface, DT, nullptr, Update.getFrom(), Update.getTo());
+        DeleteEdge(iface, DT, nullptr, from, to);
 
       return;
     }
@@ -1680,6 +1685,7 @@ void InsertEdge(DomTreeT &DT, typename DomTreeT::NodePtr From,
                 typename DomTreeT::NodePtr To) {
   using CfgTraits = typename DomTreeT::CfgTraits;
   GraphInterfaceImpl<CfgTraits> iface;
+  if (DT.isPostDominator()) std::swap(From, To);
   GenericSemiNCAInfo::InsertEdge(iface, DT, nullptr, CfgTraits::toGeneric(From),
                                  CfgTraits::toGeneric(To));
 }
@@ -1689,6 +1695,7 @@ void DeleteEdge(DomTreeT &DT, typename DomTreeT::NodePtr From,
                 typename DomTreeT::NodePtr To) {
   using CfgTraits = typename DomTreeT::CfgTraits;
   GraphInterfaceImpl<CfgTraits> iface;
+  if (DT.isPostDominator()) std::swap(From, To);
   GenericSemiNCAInfo::DeleteEdge(iface, DT, nullptr, CfgTraits::toGeneric(From),
                                  CfgTraits::toGeneric(To));
 }
