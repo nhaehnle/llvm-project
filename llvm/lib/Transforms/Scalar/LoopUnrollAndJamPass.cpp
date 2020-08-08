@@ -325,16 +325,17 @@ tryToUnrollAndJamLoop(Loop *L, DominatorTree &DT, LoopInfo *LI,
   // Approximate the loop size and collect useful info
   unsigned NumInlineCandidates;
   bool NotDuplicatable;
-  bool Convergent;
   SmallPtrSet<const Value *, 32> EphValues;
   CodeMetrics::collectEphemeralValues(L, &AC, EphValues);
   Loop *SubLoop = L->getSubLoops()[0];
+  LoopConvergenceKind Convergent;
+  const Instruction *Heart;
   unsigned InnerLoopSize =
       ApproximateLoopSize(SubLoop, NumInlineCandidates, NotDuplicatable,
-                          Convergent, TTI, EphValues, UP.BEInsns);
+                          Convergent, Heart, TTI, EphValues, UP.BEInsns);
   unsigned OuterLoopSize =
       ApproximateLoopSize(L, NumInlineCandidates, NotDuplicatable, Convergent,
-                          TTI, EphValues, UP.BEInsns);
+                          Heart, TTI, EphValues, UP.BEInsns);
   LLVM_DEBUG(dbgs() << "  Outer Loop Size: " << OuterLoopSize << "\n");
   LLVM_DEBUG(dbgs() << "  Inner Loop Size: " << InnerLoopSize << "\n");
   if (NotDuplicatable) {
@@ -346,7 +347,7 @@ tryToUnrollAndJamLoop(Loop *L, DominatorTree &DT, LoopInfo *LI,
     LLVM_DEBUG(dbgs() << "  Not unrolling loop with inlinable calls.\n");
     return LoopUnrollResult::Unmodified;
   }
-  if (Convergent) {
+  if (Convergent != LoopConvergenceKind::None) {
     LLVM_DEBUG(
         dbgs() << "  Not unrolling loop with convergent instructions.\n");
     return LoopUnrollResult::Unmodified;

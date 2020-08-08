@@ -645,15 +645,42 @@ static Optional<EstimatedUnrollCost> analyzeLoopUnrollCost(
 
 /// ApproximateLoopSize - Approximate the size of the loop.
 unsigned llvm::ApproximateLoopSize(
-    const Loop *L, unsigned &NumCalls, bool &NotDuplicatable, bool &Convergent,
+    const Loop *L, unsigned &NumCalls, bool &NotDuplicatable,
+    LoopConvergenceKind &Convergent, const Instruction *&Heart,
     const TargetTransformInfo &TTI,
     const SmallPtrSetImpl<const Value *> &EphValues, unsigned BEInsns) {
   CodeMetrics Metrics;
-  for (BasicBlock *BB : L->blocks())
+  bool convergenceControlledByOutside = false;
+  bool nonHeaderHeart = false;
+
+  Heart = nullptr;
+
+  for (BasicBlock *BB : L->blocks()) {
     Metrics.analyzeBasicBlock(BB, TTI, EphValues);
+
+    for (const auto &heart : Metrics.convergenceHearts) {
+      BasicBlock *defBlock = cast<Instruction>(heart.second)->getParent();
+      if (!L->contains(defBlock)) {
+        convergenceControlledByOutside = true;
+        if (BB != L->getHeader())
+          nonHeaderHeart = true;
+        assert(!Heart && "invalid IR: loop has multiple relevant hearts");
+        Heart = heart.first;
+      }
+    }
+    Metrics.convergenceHearts.clear();
+  }
   NumCalls = Metrics.NumInlineCandidates;
   NotDuplicatable = Metrics.notDuplicatable;
-  Convergent = Metrics.convergent;
+
+  if (nonHeaderHeart)
+    Convergent = LoopConvergenceKind::NonHeaderHeart;
+  else if (Metrics.convergentUncontrolled || convergenceControlledByOutside)
+    Convergent = LoopConvergenceKind::Some;
+  else if (Metrics.convergent)
+    Convergent = LoopConvergenceKind::AnchoredInLoop;
+  else
+    Convergent = LoopConvergenceKind::None;
 
   unsigned LoopSize = Metrics.NumInsts;
 
@@ -1049,7 +1076,6 @@ static LoopUnrollResult tryToUnrollLoop(
   bool OptForSize = L->getHeader()->getParent()->hasOptSize();
   unsigned NumInlineCandidates;
   bool NotDuplicatable;
-  bool Convergent;
   TargetTransformInfo::UnrollingPreferences UP = gatherUnrollingPreferences(
       L, SE, TTI, BFI, PSI, OptLevel, ProvidedThreshold, ProvidedCount,
       ProvidedAllowPartial, ProvidedRuntime, ProvidedUpperBound,
@@ -1066,9 +1092,11 @@ static LoopUnrollResult tryToUnrollLoop(
   SmallPtrSet<const Value *, 32> EphValues;
   CodeMetrics::collectEphemeralValues(L, &AC, EphValues);
 
+  LoopConvergenceKind Convergent;
+  const Instruction *Heart;
   unsigned LoopSize =
       ApproximateLoopSize(L, NumInlineCandidates, NotDuplicatable, Convergent,
-                          TTI, EphValues, UP.BEInsns);
+                          Heart, TTI, EphValues, UP.BEInsns);
   LLVM_DEBUG(dbgs() << "  Loop Size = " << LoopSize << "\n");
   if (NotDuplicatable) {
     LLVM_DEBUG(dbgs() << "  Not unrolling loop which contains non-duplicatable"
@@ -1105,15 +1133,18 @@ static LoopUnrollResult tryToUnrollLoop(
   // is unsafe -- it adds a control-flow dependency to the convergent
   // operation.  Therefore restrict remainder loop (try unrolling without).
   //
-  // TODO: This is quite conservative.  In practice, convergent_op()
-  // is likely to be called unconditionally in the loop.  In this
-  // case, the program would be ill-formed (on most architectures)
-  // unless n were the same on all threads in a thread group.
-  // Assuming n is the same on all threads, any kind of unrolling is
-  // safe.  But currently llvm's notion of convergence isn't powerful
-  // enough to express this.
-  if (Convergent)
+  // TODO: This is still somewhat conservative, as we could allow the remainder
+  // if the trip count is uniform (and we don't have an unnatural heart).
+  switch (Convergent) {
+  case LoopConvergenceKind::None:
+  case LoopConvergenceKind::AnchoredInLoop:
+    break; // no convergence-related restrictions
+  case LoopConvergenceKind::Some:
     UP.AllowRemainder = false;
+    break;
+  case LoopConvergenceKind::NonHeaderHeart:
+    return LoopUnrollResult::Unmodified;
+  }
 
   // Try to find the trip count upper bound if we cannot find the exact trip
   // count.
@@ -1141,12 +1172,21 @@ static LoopUnrollResult tryToUnrollLoop(
 
   // Unroll the loop.
   Loop *RemainderLoop = nullptr;
+  UnrollLoopOptions ULO;
+  ULO.Count = UP.Count;
+  ULO.TripCount = TripCount;
+  ULO.Force = UP.Force;
+  ULO.AllowRuntime = UP.Runtime;
+  ULO.AllowExpensiveTripCount = UP.AllowExpensiveTripCount;
+  ULO.PreserveCondBr = UseUpperBound;
+  ULO.PreserveOnlyFirst = MaxOrZero;
+  ULO.TripMultiple = TripMultiple;
+  ULO.PeelCount = PP.PeelCount;
+  ULO.UnrollRemainder = UP.UnrollRemainder;
+  ULO.ForgetAllSCEV = ForgetAllSCEV;
+  ULO.Heart = Heart;
   LoopUnrollResult UnrollResult = UnrollLoop(
-      L,
-      {UP.Count, TripCount, UP.Force, UP.Runtime, UP.AllowExpensiveTripCount,
-       UseUpperBound, MaxOrZero, TripMultiple, PP.PeelCount, UP.UnrollRemainder,
-       ForgetAllSCEV},
-      LI, &SE, &DT, &AC, &TTI, &ORE, PreserveLCSSA, &RemainderLoop);
+      L, ULO, LI, &SE, &DT, &AC, &TTI, &ORE, PreserveLCSSA, &RemainderLoop);
   if (UnrollResult == LoopUnrollResult::Unmodified)
     return LoopUnrollResult::Unmodified;
 

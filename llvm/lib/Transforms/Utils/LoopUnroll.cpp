@@ -409,19 +409,33 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
     }
   }
 
-  // Loops containing convergent instructions must have a count that divides
+  // Loops containing convergent instructions that are uncontrolled or
+  // controlled from outside the loop must have a count that divides
   // their TripMultiple.
-  LLVM_DEBUG(
-      {
-        bool HasConvergent = false;
-        for (auto &BB : L->blocks())
-          for (auto &I : *BB)
-            if (auto *CB = dyn_cast<CallBase>(&I))
-              HasConvergent |= CB->isConvergent();
-        assert((!HasConvergent || ULO.TripMultiple % ULO.Count == 0) &&
-               "Unroll count must divide trip multiple if loop contains a "
-               "convergent operation.");
-      });
+  LLVM_DEBUG({
+    bool HasOutsideConvergenceControl = false;
+    for (auto &BB : L->blocks()) {
+      for (auto &I : *BB) {
+        if (auto *CB = dyn_cast<CallBase>(&I)) {
+          if (CB->isConvergent()) {
+            auto control =
+                CB->getOperandBundle(LLVMContext::OB_convergencectrl);
+            if (!control) {
+              HasOutsideConvergenceControl = true;
+              break;
+            }
+            Value *token = control.getValue().Inputs[0].get();
+            if (!L->contains(cast<Instruction>(token)))
+              HasOutsideConvergenceControl = true;
+          }
+        }
+      }
+    }
+    assert(
+        (!HasOutsideConvergenceControl || ULO.TripMultiple % ULO.Count == 0) &&
+        "Unroll count must divide trip multiple if loop contains an "
+        "outside-controlled convergent operation.");
+  });
 
   bool EpilogProfitability =
       UnrollRuntimeEpilog.getNumOccurrences() ? UnrollRuntimeEpilog
@@ -585,6 +599,8 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
                          << DIL->getFilename() << " Line: " << DIL->getLine());
           }
 
+  assert(ULO.Heart == nullptr || ULO.Heart->getParent() == Header);
+
   for (unsigned It = 1; It != ULO.Count; ++It) {
     SmallVector<BasicBlock *, 8> NewBlocks;
     SmallDenseMap<const Loop *, Loop *, 4> NewLoops;
@@ -602,7 +618,7 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
       if (OldLoop)
         LoopsToSimplify.insert(NewLoops[OldLoop]);
 
-      if (*BB == Header)
+      if (*BB == Header) {
         // Loop over all of the PHI nodes in the block, changing them to use
         // the incoming values from the previous block.
         for (PHINode *OrigPHI : OrigPHINode) {
@@ -614,6 +630,16 @@ LoopUnrollResult llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
           VMap[OrigPHI] = InVal;
           New->getInstList().erase(NewPHI);
         }
+
+        // Eliminate copies of the loop heart intrinsic, if any.
+        if (ULO.Heart) {
+          auto it = VMap.find(ULO.Heart);
+          assert(it != VMap.end());
+          Instruction *heartCopy = cast<Instruction>(it->second);
+          heartCopy->eraseFromParent();
+          VMap.erase(it);
+        }
+      }
 
       // Update our running map of newest clones
       LastValueMap[*BB] = New;

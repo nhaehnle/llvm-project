@@ -973,14 +973,20 @@ bool llvm::UnrollRuntimeLoopRemainder(
   auto UnrollResult = LoopUnrollResult::Unmodified;
   if (remainderLoop && UnrollRemainder) {
     LLVM_DEBUG(dbgs() << "Unrolling remainder loop\n");
-    UnrollResult =
-        UnrollLoop(remainderLoop,
-                   {/*Count*/ Count - 1, /*TripCount*/ Count - 1,
-                    /*Force*/ false, /*AllowRuntime*/ false,
-                    /*AllowExpensiveTripCount*/ false, /*PreserveCondBr*/ true,
-                    /*PreserveOnlyFirst*/ false, /*TripMultiple*/ 1,
-                    /*PeelCount*/ 0, /*UnrollRemainder*/ false, ForgetAllSCEV},
-                   LI, SE, DT, AC, TTI, /*ORE*/ nullptr, PreserveLCSSA);
+    UnrollLoopOptions ULO;
+    ULO.Count = Count - 1;
+    ULO.TripCount = Count - 1;
+    ULO.Force = false;
+    ULO.AllowRuntime = false;
+    ULO.AllowExpensiveTripCount = false;
+    ULO.PreserveCondBr = true;
+    ULO.PreserveOnlyFirst = false;
+    ULO.TripMultiple = 1;
+    ULO.PeelCount = 0;
+    ULO.UnrollRemainder = false;
+    ULO.ForgetAllSCEV = ForgetAllSCEV;
+    UnrollResult = UnrollLoop(remainderLoop, ULO, LI, SE, DT, AC, TTI,
+                              /*ORE*/ nullptr, PreserveLCSSA);
   }
 
   if (ResultLoop && UnrollResult != LoopUnrollResult::FullyUnrolled)

@@ -19,6 +19,7 @@
 namespace llvm {
 class AssumptionCache;
 class BasicBlock;
+class Instruction;
 class Loop;
 class Function;
 template <class T> class SmallPtrSetImpl;
@@ -44,6 +45,9 @@ struct CodeMetrics {
   /// True if this function contains a call to a convergent function.
   bool convergent = false;
 
+  /// True if the code contains an uncontrolled convergent operation.
+  bool convergentUncontrolled = false;
+
   /// True if this function calls alloca (in the C sense).
   bool usesDynamicAlloca = false;
 
@@ -52,6 +56,9 @@ struct CodeMetrics {
 
   /// Number of analyzed blocks.
   unsigned NumBlocks = false;
+
+  /// Keeps track of loop heart intrinsics and their convergencectrl token use.
+  std::vector<std::pair<const Instruction *, Value *>> convergenceHearts;
 
   /// Keeps track of basic block code size estimates.
   DenseMap<const BasicBlock *, unsigned> NumBBInsts;
