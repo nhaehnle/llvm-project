@@ -20,6 +20,7 @@ class CfgTraitsBase : public llvm::CfgTraitsBase {
 public:
   using ParentType = Region;
   using BlockRef = Block *;
+  using InstructionRef = void;
   using ValueRef = void;
 
   static llvm::CfgBlockRef wrapRef(BlockRef block) {

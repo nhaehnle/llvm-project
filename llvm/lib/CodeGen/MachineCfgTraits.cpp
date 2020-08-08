@@ -24,6 +24,11 @@ void MachineCfgTraits::Printer::printValue(raw_ostream &out,
   }
 }
 
+void MachineCfgTraits::Printer::printInstruction(
+    raw_ostream &out, MachineInstr *instruction) const {
+  instruction->print(out);
+}
+
 void MachineCfgTraits::Printer::printBlockName(raw_ostream &out,
                                                MachineBasicBlock *block) const {
   block->printName(out);

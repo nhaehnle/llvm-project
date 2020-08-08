@@ -27,6 +27,7 @@ class VPCfgTraitsBase : public CfgTraitsBase {
 public:
   using ParentType = VPRegionBlock;
   using BlockRef = VPBlockBase *;
+  using InstructionRef = void;
   using ValueRef = void;
 
   static CfgBlockRef wrapRef(BlockRef block) {

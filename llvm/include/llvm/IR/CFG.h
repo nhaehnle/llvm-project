@@ -407,16 +407,23 @@ class IrCfgTraitsBase : public CfgTraitsBase {
 public:
   using ParentType = Function;
   using BlockRef = BasicBlock *;
+  using InstructionRef = Instruction *;
   using ValueRef = Value *;
 
   static CfgBlockRef wrapRef(BlockRef block) {
     return makeOpaque<CfgBlockRefTag>(block);
+  }
+  static CfgInstructionRef wrapRef(InstructionRef instruction) {
+    return makeOpaque<CfgInstructionRefTag>(instruction);
   }
   static CfgValueRef wrapRef(ValueRef block) {
     return makeOpaque<CfgValueRefTag>(block);
   }
   static BlockRef unwrapRef(CfgBlockRef block) {
     return static_cast<BlockRef>(getOpaque(block));
+  }
+  static InstructionRef unwrapRef(CfgInstructionRef instruction) {
+    return static_cast<InstructionRef>(getOpaque(instruction));
   }
   static ValueRef unwrapRef(CfgValueRef block) {
     return static_cast<ValueRef>(getOpaque(block));
@@ -460,6 +467,10 @@ public:
     return {block_iterator(function->begin()), block_iterator(function->end())};
   }
 
+  static bool comesBefore(Instruction *lhs, Instruction *rhs) {
+    return lhs->comesBefore(rhs);
+  }
+
   struct value_iterator
       : iterator_adaptor_base<value_iterator, BasicBlock::iterator> {
     using Base = iterator_adaptor_base<value_iterator, BasicBlock::iterator>;
@@ -481,6 +492,7 @@ public:
 
     void printBlockName(raw_ostream &out, BlockRef block) const;
     void printValue(raw_ostream &out, ValueRef value) const;
+    void printInstruction(raw_ostream &out, InstructionRef instruction) const;
 
   private:
     mutable std::unique_ptr<ModuleSlotTracker> m_moduleSlotTracker;

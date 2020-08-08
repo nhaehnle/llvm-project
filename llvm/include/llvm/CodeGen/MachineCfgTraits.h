@@ -27,10 +27,14 @@ class MachineCfgTraitsBase : public CfgTraitsBase {
 public:
   using ParentType = MachineFunction;
   using BlockRef = MachineBasicBlock *;
+  using InstructionRef = MachineInstr *;
   using ValueRef = Register;
 
   static CfgBlockRef wrapRef(BlockRef block) {
     return makeOpaque<CfgBlockRefTag>(block);
+  }
+  static CfgInstructionRef wrapRef(InstructionRef instruction) {
+    return makeOpaque<CfgInstructionRefTag>(instruction);
   }
   static CfgValueRef wrapRef(ValueRef value) {
     // Physical registers are unsupported by design.
@@ -47,6 +51,9 @@ public:
   }
   static BlockRef unwrapRef(CfgBlockRef block) {
     return static_cast<BlockRef>(getOpaque(block));
+  }
+  static InstructionRef unwrapRef(CfgInstructionRef instruction) {
+    return static_cast<InstructionRef>(getOpaque(instruction));
   }
   static ValueRef unwrapRef(CfgValueRef value) {
     uintptr_t wrapped = reinterpret_cast<uintptr_t>(getOpaque(value));
@@ -85,6 +92,12 @@ public:
   blocks(MachineFunction *function) {
     return {const_blockref_iterator(function->begin()),
             const_blockref_iterator(function->end())};
+  }
+
+  static bool comesBefore(MachineInstr *, MachineInstr *) {
+    // Currently no efficient implementation possible, so prefer not to
+    // provide one at all. We don't want to lay a subtle performance trap here.
+    abort();
   }
 
   static auto predecessors(MachineBasicBlock *block) {
@@ -156,6 +169,7 @@ public:
 
     void printBlockName(raw_ostream &out, MachineBasicBlock *block) const;
     void printValue(raw_ostream &out, Register value) const;
+    void printInstruction(raw_ostream &out, MachineInstr *instruction) const;
 
   private:
     MachineRegisterInfo *m_regInfo;

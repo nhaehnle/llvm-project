@@ -79,6 +79,9 @@ using CfgParentRef = CfgOpaqueType<CfgParentRefTag>;
 class CfgBlockRefTag;
 using CfgBlockRef = CfgOpaqueType<CfgBlockRefTag>;
 
+class CfgInstructionRefTag;
+using CfgInstructionRef = CfgOpaqueType<CfgInstructionRefTag>;
+
 class CfgValueRefTag;
 using CfgValueRef = CfgOpaqueType<CfgValueRefTag>;
 
@@ -113,8 +116,10 @@ public:
   //
   // - Static methods for converting BlockRef and ValueRef to and from
   //   static CfgBlockRef wrapRef(BlockRef);
+  //   static CfgInstructionRef wrapRef(InstructionRef);
   //   static CfgValueRef wrapRef(ValueRef);
   //   static BlockRef unwrapRef(CfgBlockRef);
+  //   static InstructionRef unwrapRef(CfgInstructionRef);
   //   static ValueRef unwrapRef(CfgValueRef);
 };
 
@@ -133,6 +138,7 @@ template <typename BaseTraits, typename FullTraits>
 class CfgTraits : public BaseTraits {
 public:
   using typename BaseTraits::BlockRef;
+  using typename BaseTraits::InstructionRef;
   using typename BaseTraits::ParentType;
   using typename BaseTraits::ValueRef;
 
@@ -159,6 +165,10 @@ public:
   // a range of iterators dereferencing to ValueRef):
   //   static auto blockdefs(BlockRef block);
 
+  // Given two instructions in the same block, this returns true if lhs is
+  // strictly before rhs.
+  //   static bool comesBefore(InstructionRef lhs, InstructionRef rhs);
+
   // Get the block in which a given value is defined. Returns a null-like
   // BlockRef if the value is not defined in a block (e.g. it is a constant or
   // function argument).
@@ -168,6 +178,8 @@ public:
   //   explicit Printer(const CfgTraits &traits);
   //   void printBlockName(raw_ostream &out, BlockRef block) const;
   //   void printValue(raw_ostream &out, ValueRef value) const;
+  //   void printInstruction(raw_ostream &out,
+  //                         InstructionRef instruction) const;
   // };
 
   ///@}
@@ -295,6 +307,9 @@ public:
   virtual void appendBlocks(CfgParentRef parent,
                             SmallVectorImpl<CfgBlockRef> &list) const = 0;
 
+  virtual bool comesBefore(CfgInstructionRef lhs,
+                           CfgInstructionRef rhs) const = 0;
+
   virtual void appendPredecessors(CfgBlockRef block,
                                   SmallVectorImpl<CfgBlockRef> &list) const = 0;
   virtual void appendSuccessors(CfgBlockRef block,
@@ -331,6 +346,8 @@ public:
 
   virtual void printBlockName(raw_ostream &out, CfgBlockRef block) const = 0;
   virtual void printValue(raw_ostream &out, CfgValueRef value) const = 0;
+  virtual void printInstruction(raw_ostream &out,
+                                CfgInstructionRef instruction) const = 0;
 
   Printable printableBlockName(CfgBlockRef block) const {
     return Printable(
@@ -339,6 +356,11 @@ public:
   Printable printableValue(CfgValueRef value) const {
     return Printable(
         [this, value](raw_ostream &out) { printValue(out, value); });
+  }
+  Printable printableInstruction(CfgInstructionRef instruction) const {
+    return Printable([this, instruction](raw_ostream &out) {
+      printInstruction(out, instruction);
+    });
   }
 };
 
@@ -376,6 +398,11 @@ public:
     auto range = CfgTraits::blocks(CfgTraits::unwrapRef(parent));
     list.insert(list.end(), CfgTraits::wrapIterator(std::begin(range)),
                 CfgTraits::wrapIterator(std::end(range)));
+  }
+
+  bool comesBefore(CfgInstructionRef lhs, CfgInstructionRef rhs) const final {
+    return CfgTraits::comesBefore(CfgTraits::unwrapRef(lhs),
+                                  CfgTraits::unwrapRef(rhs));
   }
 
   void appendPredecessors(CfgBlockRef block,
@@ -443,6 +470,11 @@ public:
   }
   void printValue(raw_ostream &out, CfgValueRef value) const final {
     CfgTraits::Printer::printValue(out, CfgTraits::unwrapRef(value));
+  }
+  void printInstruction(raw_ostream &out,
+                        CfgInstructionRef instruction) const final {
+    CfgTraits::Printer::printInstruction(out,
+                                         CfgTraits::unwrapRef(instruction));
   }
 };
 

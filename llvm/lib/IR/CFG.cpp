@@ -36,6 +36,11 @@ void IrCfgTraits::Printer::printValue(raw_ostream &out, ValueRef value) const {
   }
 }
 
+void IrCfgTraits::Printer::printInstruction(raw_ostream &out,
+                                            InstructionRef instruction) const {
+  printValue(out, instruction);
+}
+
 void IrCfgTraits::Printer::printBlockName(raw_ostream &out,
                                           BlockRef block) const {
   if (block->hasName()) {

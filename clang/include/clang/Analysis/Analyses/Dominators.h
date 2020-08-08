@@ -31,6 +31,7 @@ class CfgTraitsBase : public llvm::CfgTraitsBase {
 public:
   using ParentType = CFG;
   using BlockRef = CFGBlock *;
+  using InstructionRef = void;
   using ValueRef = void;
 
   static llvm::CfgBlockRef wrapRef(BlockRef block) {
