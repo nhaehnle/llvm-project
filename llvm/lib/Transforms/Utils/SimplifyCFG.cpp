@@ -1303,6 +1303,13 @@ bool SimplifyCFGOpt::HoistThenElseCodeToIf(BranchInst *BI,
       isa<CallBrInst>(I1))
     return false;
 
+  // Cannot hoist convergent calls since that could change the set of threads
+  // with which they communicate.
+  if (const auto *C = dyn_cast<CallBase>(I1)) {
+    if (C->isConvergent())
+      return false;
+  }
+
   BasicBlock *BIParent = BI->getParent();
 
   bool Changed = false;
@@ -1525,13 +1532,19 @@ static bool canSinkInstructions(
         I->getType()->isTokenTy())
       return false;
 
-    // Conservatively return false if I is an inline-asm instruction. Sinking
-    // and merging inline-asm instructions can potentially create arguments
-    // that cannot satisfy the inline-asm constraints.
-    // If the instruction has nomerge attribute, return false.
-    if (const auto *C = dyn_cast<CallBase>(I))
+    if (const auto *C = dyn_cast<CallBase>(I)) {
+      // Conservatively return false if I is an inline-asm instruction. Sinking
+      // and merging inline-asm instructions can potentially create arguments
+      // that cannot satisfy the inline-asm constraints.
+      // If the instruction has nomerge attribute, return false.
       if (C->isInlineAsm() || C->cannotMerge())
         return false;
+
+      // Do not sink convergent calls, as sinking may affect the set of threads
+      // with which the convergent operation communicates.
+      if (C->isConvergent())
+        return false;
+    }
 
     // Each instruction must have zero or one use.
     if (HasUse && !I->hasOneUse())

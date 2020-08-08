@@ -4467,10 +4467,16 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
   }
   case Instruction::Call: {
     auto *CI = cast<const CallInst>(Inst);
-    const Function *Callee = CI->getCalledFunction();
+
+    // The called function depends on the set of threads executing it, which
+    // could change if the call is moved to a different location in control
+    // flow.
+    if (CI->isConvergent())
+      return false;
 
     // The called function could have undefined behavior or side-effects, even
     // if marked readnone nounwind.
+    const Function *Callee = CI->getCalledFunction();
     return Callee && Callee->isSpeculatable();
   }
   case Instruction::VAArg:
