@@ -17,6 +17,7 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "code-metrics"
@@ -156,19 +157,34 @@ void CodeMetrics::analyzeBasicBlock(const BasicBlock *BB,
     if (isa<ExtractElementInst>(I) || I.getType()->isVectorTy())
       ++NumVectorInsts;
 
-    if (I.getType()->isTokenTy() && I.isUsedOutsideOfBlock(BB))
+    if (I.getType()->isTokenTy() && I.isUsedOutsideOfBlock(BB)) {
+      // TODO: This seems misleading, and leads to potentially too conservative
+      //       behavior for loop unrolling decisions.
       notDuplicatable = true;
-
-    if (const CallInst *CI = dyn_cast<CallInst>(&I)) {
-      if (CI->cannotDuplicate())
-        notDuplicatable = true;
-      if (CI->isConvergent())
-        convergent = true;
     }
 
-    if (const InvokeInst *InvI = dyn_cast<InvokeInst>(&I))
-      if (InvI->cannotDuplicate())
+    if (const CallBase *CB = dyn_cast<CallBase>(&I)) {
+      if (CB->cannotDuplicate())
         notDuplicatable = true;
+      if (CB->isConvergent()) {
+        convergent = true;
+
+        auto *intrinsicInst = dyn_cast<IntrinsicInst>(CB);
+        auto control = CB->getOperandBundle(LLVMContext::OB_convergencectrl);
+        if (intrinsicInst && intrinsicInst->getIntrinsicID() ==
+                                 Intrinsic::experimental_convergence_loop) {
+          assert(control &&
+                 "invalid IR: loop heart without convergencectrl bundle");
+          Value *token = control.getValue().Inputs[0].get();
+          convergenceHearts.emplace_back(intrinsicInst, token);
+        } else if (!control &&
+                   (!intrinsicInst ||
+                    intrinsicInst->getIntrinsicID() !=
+                        Intrinsic::experimental_convergence_anchor)) {
+          convergentUncontrolled = true;
+        }
+      }
+    }
 
     NumInsts += TTI.getUserCost(&I, TargetTransformInfo::TCK_CodeSize);
   }

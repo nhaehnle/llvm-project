@@ -76,6 +76,7 @@ struct UnrollLoopOptions {
   unsigned PeelCount;
   bool UnrollRemainder;
   bool ForgetAllSCEV;
+  const Instruction *Heart = nullptr;
 };
 
 LoopUnrollResult UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
@@ -127,8 +128,25 @@ TargetTransformInfo::UnrollingPreferences gatherUnrollingPreferences(
     Optional<bool> UserAllowPartial, Optional<bool> UserRuntime,
     Optional<bool> UserUpperBound, Optional<unsigned> UserFullUnrollMaxCount);
 
+enum class LoopConvergenceKind {
+  // No convergent operations at all.
+  None,
+
+  // All convergent operations are controlled and anchored inside the loop.
+  AnchoredInLoop,
+
+  // Some convergent operations, unrolling is possible subject to constraints
+  // (no remainder loop).
+  Some,
+
+  // Heart controlling the loop outside of its header block.
+  NonHeaderHeart,
+};
+
 unsigned ApproximateLoopSize(const Loop *L, unsigned &NumCalls,
-                             bool &NotDuplicatable, bool &Convergent,
+                             bool &NotDuplicatable,
+                             LoopConvergenceKind &Convergent,
+                             const Instruction *&Heart,
                              const TargetTransformInfo &TTI,
                              const SmallPtrSetImpl<const Value *> &EphValues,
                              unsigned BEInsns);
