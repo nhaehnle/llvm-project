@@ -4467,6 +4467,12 @@ bool llvm::isSafeToSpeculativelyExecute(const Value *V,
     auto *CI = cast<const CallInst>(Inst);
     const Function *Callee = CI->getCalledFunction();
 
+    // The called function depends on the set of threads executing it, which
+    // could change if the call is moved to a different location in control
+    // flow.
+    if (CI->isConvergent())
+      return false;
+
     // The called function could have undefined behavior or side-effects, even
     // if marked readnone nounwind.
     return Callee && Callee->isSpeculatable();
