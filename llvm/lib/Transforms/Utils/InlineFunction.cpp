@@ -1644,15 +1644,19 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
 
   // The inliner does not know how to inline through calls with operand bundles
   // in general ...
+  Value *convergenceControlToken = nullptr;
   if (CB.hasOperandBundles()) {
     for (int i = 0, e = CB.getNumOperandBundles(); i != e; ++i) {
-      uint32_t Tag = CB.getOperandBundleAt(i).getTagID();
-      // ... but it knows how to inline through "deopt" operand bundles ...
-      if (Tag == LLVMContext::OB_deopt)
+      OperandBundleUse OBU = CB.getOperandBundleAt(i);
+      uint32_t Tag = OBU.getTagID();
+      // ... but it knows how to inline through some operand bundles.
+      if (Tag == LLVMContext::OB_deopt || Tag == LLVMContext::OB_funclet)
         continue;
-      // ... and "funclet" operand bundles.
-      if (Tag == LLVMContext::OB_funclet)
+
+      if (Tag == LLVMContext::OB_convergencectrl) {
+        convergenceControlToken = OBU.Inputs[0].get();
         continue;
+      }
 
       return InlineResult::failure("unsupported operand bundle");
     }
@@ -1925,13 +1929,26 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
   }
 
   // If there are any alloca instructions in the block that used to be the entry
-  // block for the callee, move them to the entry block of the caller.  First
-  // calculate which instruction they should be inserted before.  We insert the
-  // instructions at the end of the current alloca list.
+  // block for the callee, move them to the entry block of the caller.
+  //
+  // Also handle convergence control entry intrinsics.
   {
     BasicBlock::iterator InsertPoint = Caller->begin()->begin();
     for (BasicBlock::iterator I = FirstNewBlock->begin(),
          E = FirstNewBlock->end(); I != E; ) {
+      if (auto *intrinsic = dyn_cast<IntrinsicInst>(I)) {
+        ++I;
+
+        if (convergenceControlToken &&
+            intrinsic->getIntrinsicID() ==
+                Intrinsic::experimental_convergence_entry) {
+          intrinsic->replaceAllUsesWith(convergenceControlToken);
+          intrinsic->eraseFromParent();
+        }
+
+        continue;
+      }
+
       AllocaInst *AI = dyn_cast<AllocaInst>(I++);
       if (!AI) continue;
 
