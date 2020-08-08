@@ -15,6 +15,7 @@ add_llvm_component_library(LLVMTransformUtils
   CloneModule.cpp
   CodeExtractor.cpp
   CodeMoverUtils.cpp
+  ConvergenceControlHeuristic.cpp
   CtorUtils.cpp
   Debugify.cpp
   DemoteRegToStack.cpp
