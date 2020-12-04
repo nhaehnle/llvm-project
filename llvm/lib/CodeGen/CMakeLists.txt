@@ -101,6 +101,7 @@ add_llvm_component_library(LLVMCodeGen
   MachineSink.cpp
   MachineSizeOpts.cpp
   MachineSSAUpdater.cpp
+  MachineSsaContext.cpp
   MachineStripDebug.cpp
   MachineTraceMetrics.cpp
   MachineVerifier.cpp

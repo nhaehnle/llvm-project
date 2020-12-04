@@ -25,6 +25,8 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Handle.h"
+#include "llvm/Support/SsaContext.h"
 #include <cassert>
 #include <cstddef>
 #include <iterator>
@@ -397,6 +399,49 @@ template <> struct GraphTraits<Inverse<const Function*>> :
     return &G.Graph->getEntryBlock();
   }
 };
+
+//===----------------------------------------------------------------------===//
+// LLVM IR SsaContext
+//===----------------------------------------------------------------------===//
+
+/// \brief SsaContext for LLVM IR.
+class IrSsaContext {
+public:
+  using BlockRef = BasicBlock *;
+  using InstructionRef = Instruction *;
+  using ValueRef = Value *;
+  using Wrapper = HandleWrapper<BlockHandle, BlockRef,
+                                InstructionHandle, InstructionRef,
+                                SsaValueHandle, ValueRef>;
+
+  explicit IrSsaContext(BasicBlock *);
+  explicit IrSsaContext(Instruction *);
+  ~IrSsaContext();
+
+  BasicBlock *getDefBlock(Value *value) const {
+    if (auto *instruction = dyn_cast<Instruction>(value))
+      return instruction->getParent();
+    if (auto *argument = dyn_cast<Argument>(value))
+      return &argument->getParent()->getEntryBlock();
+    return nullptr;
+  }
+
+  Printable printableName(BasicBlock *block) const;
+  Printable printable(Value *value) const;
+
+private:
+  mutable std::unique_ptr<ModuleSlotTracker> m_moduleSlotTracker;
+
+  void ensureModuleSlotTracker(const Function &function) const;
+};
+
+template <> struct SsaContextForImpl<BasicBlock *> {
+  using Context = IrSsaContext;
+};
+template <> struct SsaContextForImpl<Instruction *> {
+  using Context = IrSsaContext;
+};
+template <> struct SsaContextForImpl<Value *> { using Context = IrSsaContext; };
 
 } // end namespace llvm
 
