@@ -32,10 +32,10 @@ void GenericConvergenceAnalysisBase::run() {
   visitConvergentOperations();
 
   // Step 2: Work through the cycle extensions.
-  SmallVector<CfgBlockRef, 16> extendedBlocks;
+  SmallVector<BlockHandle, 16> extendedBlocks;
 
   while (!m_pendingExtensions.empty()) {
-    CfgBlockRef const extendBlock = m_pendingExtensions.back().first;
+    BlockHandle const extendBlock = m_pendingExtensions.back().first;
     GenericCycleBase *const extendCycle = m_pendingExtensions.back().second;
     m_pendingExtensions.pop_back();
 
@@ -91,7 +91,7 @@ void GenericConvergenceAnalysisBase::run() {
             if (!child->m_children.empty())
               stack.push_back(child);
 
-            CfgBlockRef block = child->m_block;
+            BlockHandle block = child->m_block;
             if (!extendCycle->containsBlock(block))
               m_pendingExtensions.emplace_back(block, extendCycle);
           }
@@ -121,7 +121,7 @@ void GenericConvergenceAnalysisBase::run() {
       }
     }
 
-    for (CfgBlockRef block : extendedBlocks) {
+    for (BlockHandle block : extendedBlocks) {
       auto blockIt = m_convergenceInfo.m_block.find(block);
       if (blockIt == m_convergenceInfo.m_block.end())
         continue;
@@ -132,7 +132,41 @@ void GenericConvergenceAnalysisBase::run() {
     extendedBlocks.clear();
   }
 
-  // Step 3: Register hearts within their final relevant cycles.
+  // Step 3: Register hearts within their final relevant cycles. Flatten cycles
+  //         as appropriate.
+  DenseMap<GenericCycleBase *, GenericCycleBase *> flattenInto;
+  SmallVector<std::pair<GenericCycleBase *, GenericCycleBase *>, 4>
+      flattenPairs;
+
+  for (ConvergentOperation *heart : m_hearts) {
+    GenericCycleBase *flattened = heart->m_cycle;
+    while (flattened->getParent() != heart->m_parent->m_cycle)
+      flattened = flattened->getParent();
+
+    if (flattened != heart->m_cycle) {
+      for (GenericCycleBase *cycle = heart->m_cycle; cycle != flattened;
+           cycle = cycle->getParent()) {
+        assert(!flattenInto.count(cycle));
+        flattenInto[cycle] = flattened;
+      }
+
+      flattenPairs.emplace_back(heart->m_cycle, flattened);
+    }
+  }
+
+  if (!flattenInto.empty()) {
+    // Adjust the operations' cycle pointers _before_ flattening (and thus
+    // destroying) any cycle objects.
+    for (const auto &opRec : m_convergenceInfo.m_operation) {
+      ConvergentOperation *op = opRec.second.get();
+      if (GenericCycleBase *flattened = flattenInto.lookup(op->m_cycle))
+        op->m_cycle = flattened;
+    }
+  }
+
+  for (const auto &flatten : flattenPairs)
+    m_cycleInfo.flattenCycles(flatten.first, flatten.second);
+
   for (ConvergentOperation *heart : m_hearts)
     m_convergenceInfo.registerHeart(heart);
 
@@ -147,7 +181,7 @@ void GenericConvergenceAnalysisBase::run() {
 /// Also record the
 void GenericConvergenceAnalysisBase::visitConvergentOperation(
     ConvergentOperation *parent, ConvergentOperation::Kind kind,
-    CfgBlockRef block, CfgInstructionRef instruction) {
+    BlockHandle block, InstructionHandle instruction) {
   assert((kind == ConvergentOperation::Anchor ||
           kind == ConvergentOperation::Entry ||
           kind == ConvergentOperation::Uncontrolled) == !parent);

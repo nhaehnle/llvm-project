@@ -176,12 +176,35 @@ ConvergentOperation *ConvergenceControlHeuristic::findOrInsertToken(
     return token;
 
   const CycleInfo &cycleInfo = m_convergenceInfo.getCycleInfo();
+  BasicBlock *cycleHeartBlock = m_convergenceInfo.getHeartBlock(cycle);
+  DomTreeNode *heartNode =
+      cycleHeartBlock ? m_domTree.getNode(cycleHeartBlock) : nullptr;
   DomTreeNode *blockNode = m_domTree.getNode(block);
 
   for (DomTreeNode *parentNode; (parentNode = blockNode->getIDom()) != nullptr;
        blockNode = parentNode) {
     const Cycle *parentCycle = cycleInfo.getCycle(parentNode->getBlock());
     if (parentCycle == cycle) {
+      if (heartNode && parentNode != heartNode &&
+          m_domTree.dominates(parentNode, heartNode)) {
+        // We need to stop our search here, since we would otherwise risk
+        // inserting an anchor in a way that violates the convergence region
+        // nesting. Example:
+        //
+        //     |
+        //  /->A
+        //  |  |\
+        //  |  | B     %b = loop heart
+        //  |  |/
+        //  ^-<C       <-- block
+        //     |
+        //
+        // Inserting an anchor at A for an operation in C creates a new
+        // convergence region that is badly nested with the convergence
+        // region of the token that controls the heart in B.
+        break;
+      }
+
       // Block in the same cycle as the operation. Scan backwards for
       // a token to use.
       token = findToken(
@@ -225,7 +248,7 @@ ConvergentOperation *ConvergenceControlHeuristic::findOrInsertToken(
     //   Depth 1: Header A, additional entry B, additional blocks C & D
     //     Depth 2: Header B, additional block D
     //
-    // If we're at block B, we can just insert a heart, because if we were to
+    // If we're at block B, we can't just insert a heart, because if we were to
     // later also insert a heart in A for the outer cycle, we'd then have a
     // cycle that goes through two heart uses of a token without going through
     // its definition.
@@ -273,10 +296,11 @@ ConvergentOperation *ConvergenceControlHeuristic::findOrInsertToken(
   // We've reached the entry block without finding a suitable intrinsic.
   // Insert an entry or anchor.
   block = blockNode->getBlock();
-  assert(block == &m_function.getEntryBlock());
+
+  ConvergentOperation::Kind kind = ConvergentOperation::Anchor;
+  if (block == &m_function.getEntryBlock() && m_function.isConvergent())
+    kind = ConvergentOperation::Entry;
 
   return m_convergenceInfo.createIntrinsic(
-      m_function.isConvergent() ? ConvergentOperation::Entry
-                                : ConvergentOperation::Anchor,
-      nullptr, block, block->getFirstInsertionPt());
+      kind, nullptr, block, block->getFirstInsertionPt());
 }

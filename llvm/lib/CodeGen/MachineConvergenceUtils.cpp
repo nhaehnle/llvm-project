@@ -21,9 +21,9 @@ namespace {
 
 /// \brief Analysis for computing convergence info on Machine IR.
 class MachineConvergenceAnalysis
-    : public GenericConvergenceAnalysis<MachineConvergenceAnalysis, MachineCfgTraits> {
+    : public GenericConvergenceAnalysis<MachineConvergenceAnalysis, MachineSsaContext> {
 public:
-  using Base = GenericConvergenceAnalysis<MachineConvergenceAnalysis, MachineCfgTraits>;
+  using Base = GenericConvergenceAnalysis<MachineConvergenceAnalysis, MachineSsaContext>;
 
   MachineConvergenceAnalysis(MachineConvergenceInfo &convergenceInfo,
                              const MachineDomTree &domTree)
@@ -54,14 +54,14 @@ namespace {
 
 /// \brief Analysis for computing convergence-aware uniform info on Machine IR.
 class MachineUniformAnalysis
-    : public GenericUniformAnalysis<MachineUniformAnalysis, MachineCfgTraits> {
+    : public GenericUniformAnalysis<MachineUniformAnalysis, MachineSsaContext> {
 private:
   const TargetInstrInfo* m_instrInfo = nullptr;
   MachineRegisterInfo* m_regInfo = nullptr;
   MachineFunction *m_function = nullptr;
   const MachineCycleInfo *m_cycleInfo = nullptr;
 public:
-  using Base = GenericUniformAnalysis<MachineUniformAnalysis, MachineCfgTraits>;
+  using Base = GenericUniformAnalysis<MachineUniformAnalysis, MachineSsaContext>;
 
   MachineUniformAnalysis(MachineUniformInfo &uniformInfo,
                          const MachineConvergenceInfo &convergenceInfo,

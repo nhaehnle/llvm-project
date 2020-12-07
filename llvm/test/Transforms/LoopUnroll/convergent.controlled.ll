@@ -84,7 +84,7 @@ define i32 @pragma_unroll(i32 %n) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ANCHOR:%.*]] = call token @llvm.experimental.convergence.anchor()
 ; CHECK-NEXT:    [[LOOP_CTL:%.*]] = mul nsw i32 [[N:%.*]], 24
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !0
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP0:!llvm.loop !.*]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[X_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_7:%.*]], [[L3]] ]
 ; CHECK-NEXT:    [[TOK_LOOP:%.*]] = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token [[ANCHOR]]) ]
@@ -105,7 +105,7 @@ define i32 @pragma_unroll(i32 %n) {
 ; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[TOK_LOOP]]) ]
 ; CHECK-NEXT:    [[INC_7]] = add nsw i32 [[INC_6]], 1
 ; CHECK-NEXT:    [[EXITCOND_7:%.*]] = icmp eq i32 [[INC_7]], [[LOOP_CTL]]
-; CHECK-NEXT:    br i1 [[EXITCOND_7]], label [[EXIT:%.*]], label [[L3]], !llvm.loop !2
+; CHECK-NEXT:    br i1 [[EXITCOND_7]], label [[EXIT:%.*]], label [[L3]], [[LOOP2:!llvm.loop !.*]]
 ; CHECK:       exit:
 ; CHECK-NEXT:    ret i32 0
 ;
@@ -132,7 +132,7 @@ define void @pragma_unroll_divisible_trip_count() {
 ; CHECK-LABEL: @pragma_unroll_divisible_trip_count(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ANCHOR:%.*]] = call token @llvm.experimental.convergence.anchor()
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !4
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP4:!llvm.loop !.*]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[X_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_1:%.*]], [[L3]] ]
 ; CHECK-NEXT:    [[TOK_LOOP:%.*]] = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token [[ANCHOR]]) ]
@@ -141,7 +141,7 @@ define void @pragma_unroll_divisible_trip_count() {
 ; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[TOK_LOOP]]) ]
 ; CHECK-NEXT:    [[INC_1]] = add nuw nsw i32 [[INC]], 1
 ; CHECK-NEXT:    [[EXITCOND_1:%.*]] = icmp eq i32 [[INC_1]], 4
-; CHECK-NEXT:    br i1 [[EXITCOND_1]], label [[EXIT:%.*]], label [[L3]], !llvm.loop !6
+; CHECK-NEXT:    br i1 [[EXITCOND_1]], label [[EXIT:%.*]], label [[L3]], [[LOOP6:!llvm.loop !.*]]
 ; CHECK:       exit:
 ; CHECK-NEXT:    ret void
 ;
@@ -168,7 +168,7 @@ define i32 @pragma_unroll_divisible_trip_multiple(i32 %n) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ANCHOR:%.*]] = call token @llvm.experimental.convergence.anchor()
 ; CHECK-NEXT:    [[LOOP_CTL:%.*]] = mul nsw i32 [[N:%.*]], 2
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !4
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP4]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[X_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC_1:%.*]], [[L3]] ]
 ; CHECK-NEXT:    [[TOK_LOOP:%.*]] = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token [[ANCHOR]]) ]
@@ -177,7 +177,7 @@ define i32 @pragma_unroll_divisible_trip_multiple(i32 %n) {
 ; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[TOK_LOOP]]) ]
 ; CHECK-NEXT:    [[INC_1]] = add nsw i32 [[INC]], 1
 ; CHECK-NEXT:    [[EXITCOND_1:%.*]] = icmp eq i32 [[INC_1]], [[LOOP_CTL]]
-; CHECK-NEXT:    br i1 [[EXITCOND_1]], label [[EXIT:%.*]], label [[L3]], !llvm.loop !7
+; CHECK-NEXT:    br i1 [[EXITCOND_1]], label [[EXIT:%.*]], label [[L3]], [[LOOP7:!llvm.loop !.*]]
 ; CHECK:       exit:
 ; CHECK-NEXT:    ret i32 0
 ;
@@ -205,14 +205,14 @@ define i32 @pragma_unroll_indivisible_runtime_trip_count(i32 %n) {
 ; CHECK-LABEL: @pragma_unroll_indivisible_runtime_trip_count(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ANCHOR:%.*]] = call token @llvm.experimental.convergence.anchor()
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !4
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP4]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[X_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC:%.*]], [[L3]] ]
 ; CHECK-NEXT:    [[TOK_LOOP:%.*]] = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token [[ANCHOR]]) ]
-; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[ANCHOR]]) ]
+; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[TOK_LOOP]]) ]
 ; CHECK-NEXT:    [[INC]] = add nsw i32 [[X_0]], 1
 ; CHECK-NEXT:    [[EXITCOND:%.*]] = icmp eq i32 [[INC]], [[N:%.*]]
-; CHECK-NEXT:    br i1 [[EXITCOND]], label [[EXIT:%.*]], label [[L3]], !llvm.loop !4
+; CHECK-NEXT:    br i1 [[EXITCOND]], label [[EXIT:%.*]], label [[L3]], [[LOOP4]]
 ; CHECK:       exit:
 ; CHECK-NEXT:    ret i32 0
 ;
@@ -223,7 +223,7 @@ entry:
 l3:
   %x.0 = phi i32 [ 0, %entry ], [ %inc, %l3 ]
   %tok.loop = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token %anchor) ]
-  call void @f() [ "convergencectrl"(token %anchor) ]
+  call void @f() [ "convergencectrl"(token %tok.loop) ]
   %inc = add nsw i32 %x.0, 1
   %exitcond = icmp eq i32 %inc, %n
   br i1 %exitcond, label %exit, label %l3, !llvm.loop !1
@@ -240,7 +240,7 @@ define i32 @pragma_unroll_indivisible_trip_count() {
 ; CHECK-LABEL: @pragma_unroll_indivisible_trip_count(
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[ANCHOR:%.*]] = call token @llvm.experimental.convergence.anchor()
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !4
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP4]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[TOK_LOOP:%.*]] = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token [[ANCHOR]]) ]
 ; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[TOK_LOOP]]) ]
@@ -277,7 +277,7 @@ define i32 @pragma_unroll_with_remainder(i32 %n) {
 ; CHECK-NEXT:    br i1 [[TMP1]], label [[EXIT_UNR_LCSSA:%.*]], label [[ENTRY_NEW:%.*]]
 ; CHECK:       entry.new:
 ; CHECK-NEXT:    [[UNROLL_ITER:%.*]] = sub i32 [[N]], [[XTRAITER]]
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !4
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP4]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[X_0:%.*]] = phi i32 [ 0, [[ENTRY_NEW]] ], [ [[INC_1:%.*]], [[L3]] ]
 ; CHECK-NEXT:    [[NITER:%.*]] = phi i32 [ [[UNROLL_ITER]], [[ENTRY_NEW]] ], [ [[NITER_NSUB_1:%.*]], [[L3]] ]
@@ -290,7 +290,7 @@ define i32 @pragma_unroll_with_remainder(i32 %n) {
 ; CHECK-NEXT:    [[INC_1]] = add nsw i32 [[INC]], 1
 ; CHECK-NEXT:    [[NITER_NSUB_1]] = sub i32 [[NITER_NSUB]], 1
 ; CHECK-NEXT:    [[NITER_NCMP_1:%.*]] = icmp eq i32 [[NITER_NSUB_1]], 0
-; CHECK-NEXT:    br i1 [[NITER_NCMP_1]], label [[EXIT_UNR_LCSSA_LOOPEXIT:%.*]], label [[L3]], !llvm.loop !8
+; CHECK-NEXT:    br i1 [[NITER_NCMP_1]], label [[EXIT_UNR_LCSSA_LOOPEXIT:%.*]], label [[L3]], [[LOOP8:!llvm.loop !.*]]
 ; CHECK:       exit.unr-lcssa.loopexit:
 ; CHECK-NEXT:    [[X_0_UNR_PH:%.*]] = phi i32 [ [[INC_1]], [[L3]] ]
 ; CHECK-NEXT:    br label [[EXIT_UNR_LCSSA]]
@@ -334,13 +334,13 @@ exit:
 define i32 @extended_loop(i32 %n) {
 ; CHECK-LABEL: @extended_loop(
 ; CHECK-NEXT:  entry:
-; CHECK-NEXT:    br label [[L3:%.*]], !llvm.loop !4
+; CHECK-NEXT:    br label [[L3:%.*]], [[LOOP4]]
 ; CHECK:       l3:
 ; CHECK-NEXT:    [[X_0:%.*]] = phi i32 [ 0, [[ENTRY:%.*]] ], [ [[INC:%.*]], [[L3]] ]
 ; CHECK-NEXT:    [[TOK_LOOP:%.*]] = call token @llvm.experimental.convergence.anchor()
 ; CHECK-NEXT:    [[INC]] = add nsw i32 [[X_0]], 1
 ; CHECK-NEXT:    [[EXITCOND:%.*]] = icmp eq i32 [[INC]], [[N:%.*]]
-; CHECK-NEXT:    br i1 [[EXITCOND]], label [[EXIT:%.*]], label [[L3]], !llvm.loop !4
+; CHECK-NEXT:    br i1 [[EXITCOND]], label [[EXIT:%.*]], label [[L3]], [[LOOP4]]
 ; CHECK:       exit:
 ; CHECK-NEXT:    call void @f() [ "convergencectrl"(token [[TOK_LOOP]]) ]
 ; CHECK-NEXT:    ret i32 0

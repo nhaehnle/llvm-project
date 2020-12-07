@@ -142,8 +142,7 @@ struct WaveNode {
   Printable printableName() const {
     return Printable([this](raw_ostream &out) {
       if (block) {
-        MachineCfgTraits::Printer(MachineCfgTraits(block->getParent()))
-            .printBlockName(out, block);
+        out << MachineSsaContext(block).printableName(block);
       }
       if (block && flowNum)
         out << '.';
@@ -262,7 +261,7 @@ private:
 } // anonymous namespace
 
 void ReconvergeCFGHelper::run() {
-  HeartAdjustedPostOrder<MachineCfgTraits> hapo;
+  HeartAdjustedPostOrder<MachineSsaContext> hapo;
   hapo.compute(m_convergenceInfo, m_domTree);
 
   // Step 1: Create initial set of WaveNodes mirroring the thread-level CFG.

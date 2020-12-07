@@ -36,19 +36,19 @@ protected:
   using ConvergenceBlockInfo = GenericConvergenceInfoBase::ConvergenceBlockInfo;
 
 private:
-  const CfgInterface &m_iface;
+  const IConvergenceInfoSsaContext &m_iface;
   GenericConvergenceInfoBase &m_convergenceInfo;
   GenericCycleInfoBase &m_cycleInfo;
   const GenericDominatorTreeBase &m_domTree;
 
-  SmallVector<std::pair<CfgBlockRef, GenericCycleBase *>, 16>
+  SmallVector<std::pair<BlockHandle, GenericCycleBase *>, 16>
       m_pendingExtensions;
-  DenseMap<CfgBlockRef, GenericCycleBase *> m_innermostExtension;
+  DenseMap<BlockHandle, GenericCycleBase *> m_innermostExtension;
 
   SmallVector<ConvergentOperation *, 8> m_hearts;
 
 public:
-  GenericConvergenceAnalysisBase(const CfgInterface &iface,
+  GenericConvergenceAnalysisBase(const IConvergenceInfoSsaContext &iface,
                                  GenericConvergenceInfoBase &convergenceInfo,
                                  GenericCycleInfoBase &cycleInfo,
                                  const GenericDominatorTreeBase &domTree)
@@ -76,32 +76,32 @@ protected:
 
   void visitConvergentOperation(ConvergentOperation *parent,
                                 ConvergentOperation::Kind kind,
-                                CfgBlockRef block,
-                                CfgInstructionRef instruction);
+                                BlockHandle block,
+                                InstructionHandle instruction);
 };
 
 /// \brief Convergence analysis implementation.
 ///
 /// Derive from this class using CRTP to implement the CFG- or target-specific
 /// bits.
-template <typename AnalysisT, typename CfgTraitsT>
+template <typename AnalysisT, typename SsaContextT>
 class GenericConvergenceAnalysis : public GenericConvergenceAnalysisBase {
 public:
-  using CfgTraits = CfgTraitsT;
-  using BlockRef = typename CfgTraits::BlockRef;
-  using InstructionRef = typename CfgTraits::InstructionRef;
-  using Cycle = GenericCycle<CfgTraits>;
-  using ConvergenceInfo = GenericConvergenceInfo<CfgTraits>;
-  using ConvergentOperation = GenericConvergentOperation<CfgTraits>;
+  using SsaContext = SsaContextT;
+  using BlockRef = typename SsaContext::BlockRef;
+  using InstructionRef = typename SsaContext::InstructionRef;
+  using Cycle = GenericCycle<SsaContext>;
+  using ConvergenceInfo = GenericConvergenceInfo<SsaContext>;
+  using ConvergentOperation = GenericConvergentOperation<SsaContext>;
   using DomTree =
       DominatorTreeBase<typename std::pointer_traits<BlockRef>::element_type,
                         false>;
 
-  GenericConvergenceAnalysis(GenericConvergenceInfo<CfgTraits> &convergenceInfo,
+  GenericConvergenceAnalysis(GenericConvergenceInfo<SsaContext> &convergenceInfo,
                              const DomTree &domTree)
       : GenericConvergenceAnalysisBase(m_ifaceImpl, convergenceInfo,
                                        convergenceInfo.getCycleInfo(), domTree),
-        m_ifaceImpl(CfgTraits::getBlockParent(domTree.getRoot())) {}
+        m_ifaceImpl(domTree.getRoot()) {}
 
   ConvergenceInfo &getConvergenceInfo() {
     return static_cast<ConvergenceInfo &>(
@@ -113,7 +113,7 @@ public:
   }
 
 protected:
-  CfgInterfaceImpl<CfgTraits> m_ifaceImpl;
+  IConvergenceInfoSsaContextImpl<SsaContext> m_ifaceImpl;
 };
 
 } // namespace llvm

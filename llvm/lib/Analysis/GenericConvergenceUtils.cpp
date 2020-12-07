@@ -23,7 +23,7 @@ void GenericConvergenceInfoBase::clear() {
 }
 
 /// \brief Return the given cycle's heart block, or null if it has none.
-CfgBlockRef
+BlockHandle
 GenericConvergenceInfoBase::getHeartBlock(const GenericCycleBase *cycle) const {
   auto heartIt = m_heart.find(cycle);
   if (heartIt != m_heart.end())
@@ -33,7 +33,7 @@ GenericConvergenceInfoBase::getHeartBlock(const GenericCycleBase *cycle) const {
 
 /// \brief Return the metadata for the given intrinsic.
 GenericConvergentOperationBase *
-GenericConvergenceInfoBase::getOperation(CfgInstructionRef instruction) {
+GenericConvergenceInfoBase::getOperation(InstructionHandle instruction) {
   auto it = m_operation.find(instruction);
   if (it == m_operation.end())
     return nullptr;
@@ -83,23 +83,17 @@ bool GenericConvergenceInfoBase::validate(
     seen.clear();
 
     if (op->getParent()) {
-      bool isSameCycle = op->getParent()->getCycle() == op->getCycle();
-      bool expectSameCycle = op->getKind() != ConvergentOperation::Heart;
-      check(isSameCycle == expectSameCycle);
-      check(cycleInfo.contains(op->getParent()->getCycle(), op->getCycle()));
+      if (op->getKind() != ConvergentOperation::Heart) {
+        check(op->getParent()->getCycle() == op->getCycle());
+      } else {
+        check(op->getParent()->getCycle() == op->getCycle()->getParent());
+        check(m_heart.lookup(op->getCycle()) == op);
+      }
     }
 
     auto blockIt = m_block.find(op->getBlock());
     check(blockIt != m_block.end() &&
           llvm::is_contained(blockIt->second.operations, op));
-
-    if (op->getKind() == ConvergentOperation::Heart) {
-      for (const GenericCycleBase *cycle = op->m_cycle;
-           cycle != op->m_parent->m_cycle; cycle = cycle->getParent()) {
-        auto heartIt = m_heart.find(cycle);
-        check(heartIt != m_heart.end() && heartIt->second == op);
-      }
-    }
   }
 
   for (const auto &block : m_block) {
@@ -123,7 +117,7 @@ bool GenericConvergenceInfoBase::validate(
   for (const auto &heart : m_heart) {
     check(allOps.count(heart.second));
     check(heart.second->getKind() == ConvergentOperation::Heart);
-    check(cycleInfo.contains(heart.first, heart.second->m_cycle));
+    check(heart.first == heart.second->m_cycle);
   }
 
   for (ConvergentOperation *root : m_roots) {
@@ -139,11 +133,11 @@ bool GenericConvergenceInfoBase::validate(
 }
 
 /// \brief Print convergence info to \p out.
-void GenericConvergenceInfoBase::print(const CfgPrinter &printer,
+void GenericConvergenceInfoBase::print(const ISsaContext &iface,
                                        const GenericCycleInfoBase &cycleInfo,
                                        raw_ostream &out) const {
   out << "Convergence-adjusted cycles:\n";
-  cycleInfo.print(printer, out);
+  cycleInfo.print(iface, out);
 
   out << "Convergent operations:\n";
 
@@ -178,14 +172,12 @@ void GenericConvergenceInfoBase::print(const CfgPrinter &printer,
       break;
     }
 
-    printer.printBlockName(out, current.first->getBlock());
+    out << iface.printableName(current.first->getBlock());
     const GenericCycleBase *cycle = current.first->getCycle();
     if (!cycle->isRoot()) {
-      out << " (cycle=" << current.first->getCycle()->print(printer) << ')';
+      out << " (cycle=" << current.first->getCycle()->print(iface) << ')';
     }
-    out << ": ";
-    printer.printInstruction(out, current.first->m_instruction);
-    out << '\n';
+    out << ": " << iface.printable(current.first->m_instruction) << '\n';
 
     for (const ConvergentOperation *child :
          llvm::reverse(current.first->children()))
@@ -197,14 +189,14 @@ void GenericConvergenceInfoBase::print(const CfgPrinter &printer,
 ///
 /// Call this after creating a new operation to preserve the analysis result.
 GenericConvergentOperationBase *GenericConvergenceInfoBase::insertOperation(
-    const CfgInterface &iface, GenericCycleInfoBase &cycleInfo,
+    const Interface &iface, GenericCycleInfoBase &cycleInfo,
     ConvergentOperation *parent, ConvergentOperation::Kind kind,
-    CfgBlockRef block, CfgInstructionRef instruction) {
+    BlockHandle block, InstructionHandle instruction) {
   ConvergenceBlockInfo &blockInfo = m_block[block];
 
   auto insertIt = llvm::lower_bound(
       blockInfo.operations, instruction,
-      [&iface](ConvergentOperation *lhs, CfgInstructionRef rhs) {
+      [&iface](ConvergentOperation *lhs, InstructionHandle rhs) {
         return iface.comesBefore(lhs->getInstruction(), rhs);
       });
 
@@ -217,6 +209,10 @@ GenericConvergentOperationBase *GenericConvergenceInfoBase::insertOperation(
       op->m_cycle = parent->m_cycle;
     } else {
       op->m_cycle = cycleInfo.getCycle(block);
+
+      // This means that either the heart is irrelevant or an adjustment to the
+      // cycle info is required, which we don't support here.
+      assert(parent->m_cycle == op->m_cycle->getParent());
 
       registerHeart(op.get());
     }
@@ -254,6 +250,7 @@ void GenericConvergenceInfoBase::eraseOperation(GenericCycleInfoBase &cycleInfo,
                                                 ConvergentOperation *op) {
   assert(op->m_children.empty() &&
          "children must be erased before their parents");
+  assert(op->getKind() != ConvergentOperation::Heart);
 
   auto blockIt = m_block.find(op->getBlock());
   assert(blockIt != m_block.end());
@@ -295,9 +292,6 @@ void GenericConvergenceInfoBase::eraseOperation(GenericCycleInfoBase &cycleInfo,
     m_roots.erase(llvm::find(m_roots, op));
   }
 
-  if (op->getKind() == ConvergentOperation::Heart)
-    unregisterHeart(op);
-
   // Delete the operation.
   assert(m_operation[op->m_instruction].get() == op);
   m_operation.erase(op->m_instruction);
@@ -308,26 +302,14 @@ void GenericConvergenceInfoBase::eraseOperation(GenericCycleInfoBase &cycleInfo,
 /// Helper that adds \p heart to m_heart for all relevant cycles.
 void GenericConvergenceInfoBase::registerHeart(ConvergentOperation *heart) {
   assert(heart->getKind() == ConvergentOperation::Heart);
-  for (GenericCycleBase *cycle = heart->m_cycle;
-       cycle != heart->m_parent->m_cycle; cycle = cycle->getParent()) {
-    assert(!m_heart.count(cycle));
-    m_heart.try_emplace(cycle, heart);
-  }
-}
-
-/// Helper that removes \p heart from m_heart for all relevant cycles.
-void GenericConvergenceInfoBase::unregisterHeart(ConvergentOperation *heart) {
-  assert(heart->getKind() == ConvergentOperation::Heart);
-  for (GenericCycleBase *cycle = heart->m_cycle;
-       cycle != heart->m_parent->m_cycle; cycle = cycle->getParent()) {
-    assert(m_heart[cycle] == heart);
-    m_heart.erase(cycle);
-  }
+  assert(heart->getCycle()->getParent() == heart->getParent()->getCycle());
+  assert(!m_heart.count(heart->getCycle()));
+  m_heart.try_emplace(heart->m_cycle, heart);
 }
 
 /// \brief Generically compute the heart-adjusted post order.
 void HeartAdjustedPostOrderBase::compute(
-    const CfgInterface &iface,
+    const ICycleInfoSsaContext &iface,
     const GenericConvergenceInfoBase &convergenceInfo,
     const GenericCycleInfoBase &cycleInfo,
     const GenericDominatorTreeBase &domTree) {
@@ -343,25 +325,25 @@ void HeartAdjustedPostOrderBase::compute(
   // we're currently visiting blocks inside them.
   struct Cycle {
     const GenericCycleBase *cycle;
-    CfgBlockRef heart;
+    BlockHandle heart;
     unsigned parentStackIdx;
-    std::vector<CfgBlockRef> order;
-    SmallVector<CfgBlockRef, 4> postponedBlocks;
+    std::vector<BlockHandle> order;
+    SmallVector<BlockHandle, 4> postponedBlocks;
 
-    explicit Cycle(const GenericCycleBase *cycle, CfgBlockRef heart,
+    explicit Cycle(const GenericCycleBase *cycle, BlockHandle heart,
                    unsigned parentStackIdx)
         : cycle(cycle), heart(heart), parentStackIdx(parentStackIdx) {}
   };
 
-  DenseSet<CfgBlockRef> visitedBlocks;
-  SmallVector<CfgBlockRef, 32> blockStack;
+  DenseSet<BlockHandle> visitedBlocks;
+  SmallVector<BlockHandle, 32> blockStack;
   // doneIdxStack contains ((size of blockStack before pop) << 1) | isCycleHeart
   SmallVector<unsigned, 32> doneIdxStack;
   SmallVector<Cycle, 8> cycleStack;
   unsigned currentCycleStackIdx = 0;
 
-  CfgBlockRef entryBlock = domTree.getRootNode()->getBlock();
-  cycleStack.emplace_back(cycleInfo.getRoot(), CfgBlockRef{}, 0);
+  BlockHandle entryBlock = domTree.getRootNode()->getBlock();
+  cycleStack.emplace_back(cycleInfo.getRoot(), BlockHandle{}, 0);
   blockStack.push_back(entryBlock);
 
   // The entry block is not marked as a cycle header, so that we don't attempt
@@ -370,7 +352,7 @@ void HeartAdjustedPostOrderBase::compute(
   iface.appendSuccessors(entryBlock, blockStack);
 
   do {
-    CfgBlockRef block = blockStack.back();
+    BlockHandle block = blockStack.back();
     unsigned doneBack = doneIdxStack.back();
 
     if (blockStack.size() == (doneBack >> 1)) {
@@ -391,7 +373,7 @@ void HeartAdjustedPostOrderBase::compute(
         // Enqueue the cycle's postponed exit blocks if there are any. In this
         // case, we aren't actually at the post-order visit of the cycle yet,
         // if we interpret it as a contracted node contained in its parent.
-        for (CfgBlockRef postponed : cycle.postponedBlocks) {
+        for (BlockHandle postponed : cycle.postponedBlocks) {
           assert(visitedBlocks.count(postponed));
           visitedBlocks.erase(postponed);
           blockStack.push_back(postponed);
@@ -420,7 +402,7 @@ void HeartAdjustedPostOrderBase::compute(
     // Pre-order visit of the block.
     const GenericCycleBase *currentCycle =
         cycleStack[currentCycleStackIdx].cycle;
-    CfgBlockRef currentHeart = cycleStack[currentCycleStackIdx].heart;
+    BlockHandle currentHeart = cycleStack[currentCycleStackIdx].heart;
     const GenericCycleBase *blockCycle = cycleInfo.getCycle(block);
 
     if (blockCycle == currentCycle ||
@@ -439,8 +421,8 @@ void HeartAdjustedPostOrderBase::compute(
                                                    blockCycle->getParent())))
         blockCycle = blockCycle->getParent();
 
-      CfgBlockRef heart = convergenceInfo.getHeartBlock(blockCycle);
-      CfgBlockRef effectiveHeart = heart ? heart : blockCycle->getHeader();
+      BlockHandle heart = convergenceInfo.getHeartBlock(blockCycle);
+      BlockHandle effectiveHeart = heart ? heart : blockCycle->getHeader();
 
       cycleStack.emplace_back(blockCycle, heart, currentCycleStackIdx);
       currentCycleStackIdx = cycleStack.size() - 1;
@@ -481,7 +463,7 @@ void GenericUniformInfoBase::clear() {
 }
 
 /// \brief Check whether the given value is divergent at its definition.
-bool GenericUniformInfoBase::isDivergentAtDef(CfgValueRef value) const {
+bool GenericUniformInfoBase::isDivergentAtDef(SsaValueHandle value) const {
   return m_divergentValues.count(value) != 0;
 }
 
@@ -491,12 +473,12 @@ bool GenericUniformInfoBase::hasDivergentExit(const GenericCycleBase *cycle) con
 }
 
 /// \brief Check whether the given block has a divergent terminator.
-bool GenericUniformInfoBase::hasDivergentTerminator(CfgBlockRef block) const {
+bool GenericUniformInfoBase::hasDivergentTerminator(BlockHandle block) const {
   return m_divergentBlocks.count(block) != 0;
 }
 
 /// \brief Generic helper function for printing.
-void GenericUniformInfoBase::print(const CfgPrinter &printer,
+void GenericUniformInfoBase::print(const IUniformInfoSsaContext &iface,
                                    raw_ostream &out) const {
   bool haveDivergentArgs = false;
 
@@ -507,41 +489,42 @@ void GenericUniformInfoBase::print(const CfgPrinter &printer,
     return;
   }
 
+  BlockHandle anyBlock;
+
   for (const auto &entry : m_divergentValues) {
-    CfgBlockRef parent = printer.interface().getValueDefBlock(entry);
+    BlockHandle parent = iface.getDefBlock(entry);
     if (!parent) {
       if (!haveDivergentArgs) {
         out << "DIVERGENT ARGUMENTS:\n";
         haveDivergentArgs = true;
       }
-      out << "  DIVERGENT: ";
-      printer.printValue(out, entry);
-      out << '\n';
+      out << "  DIVERGENT: " << iface.printable(entry) << '\n';
+    } else {
+      anyBlock = parent;
     }
   }
 
   if (!m_divergentCycleExits.empty()) {
     out << "DIVERGENT CYCLES:\n";
     for (const GenericCycleBase *cycle : m_divergentCycleExits) {
-      out << "  " << cycle->print(printer) << '\n';
+      out << "  " << cycle->print(iface) << '\n';
+      anyBlock = cycle->getHeader();
     }
   }
 
-  SmallVector<CfgBlockRef, 16> blocks;
-  SmallVector<CfgValueRef, 16> defs;
-  printer.interface().appendBlocks(m_parent, blocks);
-  for (CfgBlockRef block : blocks) {
-    out << "BLOCK "; printer.printBlockName(out, block);
-    out << '\n';
+  SmallVector<BlockHandle, 16> blocks;
+  SmallVector<SsaValueHandle, 16> defs;
+  iface.appendBlocksOfFunction(anyBlock, blocks);
+  for (BlockHandle block : blocks) {
+    out << "BLOCK " << iface.printableName(block) << '\n';
 
-    printer.interface().appendBlockDefs(block, defs);
-    for (CfgValueRef value : defs) {
+    iface.appendBlockDefs(block, defs);
+    for (SsaValueHandle value : defs) {
       if (isDivergentAtDef(value))
         out << "  DIVERGENT: ";
       else
         out << "             ";
-      printer.printValue(out, value);
-      out << '\n';
+      out << iface.printable(value) << '\n';
     }
     defs.clear();
   }

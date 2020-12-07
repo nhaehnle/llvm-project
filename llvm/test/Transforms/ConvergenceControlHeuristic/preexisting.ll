@@ -217,7 +217,8 @@ define void @unusual_heart() {
 ; CHECK-NEXT:    call void @convergent.op(i32 0) [ "convergencectrl"(token [[TOK_C]]) ]
 ; CHECK-NEXT:    br i1 undef, label [[B]], label [[D]]
 ; CHECK:       D:
-; CHECK-NEXT:    call void @convergent.op(i32 0) [ "convergencectrl"(token [[TMP0]]) ]
+; CHECK-NEXT:    [[TMP1:%.*]] = call token @llvm.experimental.convergence.anchor()
+; CHECK-NEXT:    call void @convergent.op(i32 0) [ "convergencectrl"(token [[TMP1]]) ]
 ; CHECK-NEXT:    br i1 undef, label [[B]], label [[E:%.*]]
 ; CHECK:       E:
 ; CHECK-NEXT:    ret void

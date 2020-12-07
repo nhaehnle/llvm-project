@@ -27,46 +27,52 @@
 /// This variant of SSA construction ignores incoming undef values. That is,
 /// paths from the entry without a definition do not result in phi nodes.
 ///
-///       entry
-///     /      \
-///    A        \
-///  /   \       Y
-/// B     C     /
-///  \   /  \  /
-///    D     E
-///     \   /
-///       F
+///          entry
+///        /      \
+///       A        \
+///     /   \       Y
+///    B     C     /
+///     \   /  \  /
+///       D     E
+///        \   /
+///          F
+///
 /// Assume that A contains a divergent terminator. We are interested in the set
 /// of all blocks that are reachable from A via two disjoint paths.
 /// This would be the set {D, F} in this case.
 /// To generally reduce this query to SSA construction we introduce a virtual
 /// variable x and assign to x different values in each successor block of A.
-///           entry
-///         /      \
-///        A        \
-///      /   \       Y
-/// x = 1   x = 2   /
-///      \  /   \  /
-///        D     E
-///         \   /
-///           F
+///
+///              entry
+///            /      \
+///           A        \
+///         /   \       Y
+///    x = 1   x = 2   /
+///         \  /   \  /
+///           D     E
+///            \   /
+///              F
+///
 /// Our flavor of SSA construction for x will construct the following
-///            entry
-///          /      \
-///         A        \
-///       /   \       Y
-/// x1 = 1   x2 = 2  /
-///       \   /   \ /
-///      x3=phi    E
-///         \     /
-///          x4=phi
+///
+///               entry
+///             /      \
+///            A        \
+///          /   \       Y
+///    x1 = 1   x2 = 2  /
+///          \   /   \ /
+///         x3=phi    E
+///            \     /
+///             x4=phi
+///
 /// The blocks D and F contain phi nodes and are thus each reachable by two
 /// disjoint paths from A.
 ///
-/// Backward edges are only partially partially propagated to detect whether
-/// a virtual phi node should be inserted at the cycle header for non-initial
-/// passes through the cycle. However, the value of that virtual phi is then
-/// not propagated further.
+/// Backward edges are only partially propagated to detect whether a virtual
+/// phi node should be inserted at the cycle header for non-initial passes
+/// through the cycle. However, the value of that virtual phi is then not
+/// propagated further.
+///
 ///
 /// \section Cycle Exit Divergence
 ///
@@ -86,15 +92,15 @@
 ///
 /// Example (natural loop with re-entrance):
 ///
-///    |
-///  />A
-///  | |\
-///  | | \
-///  | |  B
-///  | | /
-///  | |/
-///  ^-C
-///    |
+///       |
+///     />A
+///     | |\
+///     | | \
+///     | |  B
+///     | | /
+///     | |/
+///     ^-C
+///       |
 ///
 /// The blocks A, B, C, form a natural loop, and a cycle, with header A.
 /// Assume that B is the cycle's heart node and that A has a divergent branch.
@@ -110,7 +116,7 @@
 /// Note: Cycles whose heart does not dominate all back edges are treated very
 ///       conservatively. This is mostly inherent to the underlying convergence
 ///       rules, and the few theoretical cases where we could say more by
-///       analyzing phi nets seem not worth the effort.
+///       analyzing phi nets seem not worth the effort at this time.
 ///
 /// Literature references:
 /// [1] "A Simple, Fast Dominance Algorithm", SPI '01, Cooper, Harvey and Kennedy
@@ -122,9 +128,7 @@
 //
 // Algorithmic TODOs:
 // - support partial blocks?
-// - sanity check the case of unreachable block (domTree.getNode() == nullptr)
 // - test correct handling of re-entrant cycles
-// - instead of m_iface, integrate CfgInterface into the inheritance hierarchy?
 //
 //===----------------------------------------------------------------------===//
 
@@ -150,32 +154,26 @@ void GenericUniformAnalysisBase::SyncSsaValue::print(raw_ostream &out) const {
   }
 }
 
-void GenericUniformAnalysisBase::handleDivergentValue(CfgValueRef value) {
+void GenericUniformAnalysisBase::handleDivergentValue(SsaValueHandle value) {
   if (!m_uniformInfo.m_divergentValues.insert(value).second)
     return;
 
-  LLVM_DEBUG(dbgs() << "DIVERGENT VALUE: " << printer().printableValue(value)
+  LLVM_DEBUG(dbgs() << "DIVERGENT VALUE: " << m_iface.printable(value)
                     << '\n');
   m_valueWorklist.push_back(value);
   if (!m_inPropagate)
     propagate();
 }
 
-void GenericUniformAnalysisBase::handleDivergentTerminator(CfgBlockRef divergentBlock) {
+void GenericUniformAnalysisBase::handleDivergentTerminator(BlockHandle divergentBlock) {
   if (!m_uniformInfo.m_divergentBlocks.insert(divergentBlock).second)
     return;
 
   LLVM_DEBUG(dbgs() << "DIVERGENT TERMINATOR: "
-                    << printer().printableBlockName(divergentBlock) << '\n');
+                    << m_iface.printableName(divergentBlock) << '\n');
   m_blockWorklist.push_back(divergentBlock);
   if (!m_inPropagate)
     propagate();
-}
-
-CfgPrinter &GenericUniformAnalysisBase::printer() {
-  if (!m_printer)
-    m_printer = m_iface.makePrinter();
-  return *m_printer;
 }
 
 /// Allocate sync-SSA data structures if necessary.
@@ -194,63 +192,123 @@ void GenericUniformAnalysisBase::syncSsaInit() {
 /// Test the disjoint-path criterion by propagating virtual values for sync-SSA,
 /// inserting virtual phis and recording divergence as we go.
 ///
-/// The caller of this function must ensure:
-///  - blocks from which divergence is triggered (block with a divergent
-///    terminator; or exiting blocks of a cycle) are marked with a negative
-///    virtual value <= -2 in the sync SSA (not pending)
-///  - divergence-relevant forward-edge successors (successors of the divergent
-///    terminator; or cycle exit blocks) are marked with mutually distinct
-///    virtual values <= -3 in the sync SSA, and they are considered pending
-///  - divergence-relevant backward-edge succesors are marked in the
-///    cycleHeaderBackwardValues
-///
-/// The last two bullets should be ensured via \ref syncSsaPropagateEdge, which
-/// will also ensure that "pending" tracking is set up correctly.
+/// The caller of this function must:
+///  - setup m_syncSsa.cycles with the cycles containing the source of
+///    divergence, and
+///  - use \ref syncSsaPropagateEdge to mark all outgoing edges of the source of
+///    control divergence with different "initial" sync-SSA values.
 ///
 /// \param hapoBound heart-adjusted post order upper-bound index (exclusive) of
 ///                  pending blocks in sync-SSA
-void GenericUniformAnalysisBase::syncSsaRun(unsigned hapoBound) {
-  SmallVector<CfgBlockRef, 8> tmpBlocks;
-  unsigned initialHapoBound = hapoBound;
-  while (m_syncSsa.numPending > 0) {
-    int hapoIndex = m_syncSsa.pending.find_last_in(0, hapoBound);
+void GenericUniformAnalysisBase::syncSsaRun() {
+  SmallVector<BlockHandle, 8> tmpBlocks;
+  unsigned initialHapoUpper = m_syncSsa.hapoUpper;
+  for (;;) {
+    int hapoIndex = m_syncSsa.pending.find_last_in(m_syncSsa.hapoLower,
+                                                   m_syncSsa.hapoUpper);
     assert(hapoIndex >= 0);
     assert((unsigned)hapoIndex < m_hapo.size());
 
-    m_syncSsa.pending[hapoIndex] = false;
-    m_syncSsa.numPending--;
-    hapoBound = hapoIndex;
-
-    CfgBlockRef block = m_hapo[hapoIndex];
+    BlockHandle block = m_hapo[hapoIndex];
     const GenericCycleBase *blockCycle = m_cycleInfo.getCycle(block);
-    SyncSsaValue tag = m_syncSsa.values[hapoIndex];
-    assert(!tag.isUndef());
+    const GenericCycleBase *currentCycle = m_syncSsa.cycles.back().cycle;
+
+    if (blockCycle != currentCycle) {
+      if (!m_cycleInfo.contains(currentCycle, blockCycle)) {
+        bool propagated = false;
+
+        do {
+          // We're exiting the current cycle. Analyze the (effective) heart's
+          // phi nodes if required and detect exit divergence.
+          auto cycleState = m_syncSsa.cycles.pop_back_val();
+          assert(cycleState.cycle == currentCycle);
+
+          syncSsaTestCycleDivergence(cycleState);
+
+          const GenericCycleBase *exitingCycle = currentCycle;
+          currentCycle = currentCycle->getParent();
+
+          // Propagate the SSA value that applies after going through the
+          // cycle's (effective) heart at least once.
+          SyncSsaValue exitValue = cycleState.heartForwardIncoming;
+          if (exitValue.isUndef()) {
+            exitValue = cycleState.latch;
+          } else if (!cycleState.latch.isUndef() &&
+                     cycleState.latch != exitValue) {
+            exitValue = SyncSsaValue::makeSpecial();
+          }
+
+          if (!exitValue.isUndef()) {
+            BlockHandle heart = m_convergenceInfo.getHeartBlock(exitingCycle);
+            if (!heart)
+              heart = exitingCycle->getHeader();
+
+            unsigned heartHapoIndex = m_hapoIndex[heart];
+
+            if (exitValue.isSpecial())
+              exitValue = SyncSsaValue::makePhi(heartHapoIndex);
+
+            for (BlockHandle block : exitingCycle->blocks()) {
+              bool isExiting = false;
+              unsigned blockHapoIndex = ~0u;
+
+              tmpBlocks.clear();
+              m_iface.appendSuccessors(block, tmpBlocks);
+              for (BlockHandle succ : tmpBlocks) {
+                 if (exitingCycle->containsBlock(succ))
+                   continue;
+
+                 if (!isExiting)
+                   blockHapoIndex = m_hapoIndex[block];
+
+                 unsigned succHapoIndex = m_hapoIndex[succ];
+                 syncSsaPropagateEdge(heartHapoIndex, currentCycle,
+                                      succ, succHapoIndex, exitValue);
+              }
+            }
+
+            propagated = true;
+            break;
+          }
+        } while (!m_cycleInfo.contains(currentCycle, blockCycle));
+
+        if (propagated)
+          continue; // need to re-scan
+      }
+    }
+
+    m_syncSsa.pending[hapoIndex] = false;
+    m_syncSsa.hapoUpper = hapoIndex;
+
+    SyncSsaValue value = m_syncSsa.values[hapoIndex];
+    assert(!value.isUndef());
+
+    if (value.isPhi() && value.getPhiIndex() == (unsigned)hapoIndex)
+      syncSsaAnalyzePhis(hapoIndex, AnalyzePhiEdges::Forward);
 
     // If this was the last pending value, then we have reached a post-dominator
     // and from this point on, no more virtual phis can be created in the
     // sync-SSA itself. However, there could still be an impact on cycle
     // back/exiting edges.
-    if (!m_syncSsa.numPending) {
+    if (m_syncSsa.hapoLower == m_syncSsa.hapoUpper) {
       bool pendingCycle = false;
-      for (const GenericCycleBase *cycle = blockCycle;
-           cycle != m_cycleInfo.getRoot(); cycle = cycle->getParent()) {
-        // For backward value tags, we need to propagate even if we already
-        // know that this cycle is a candidate for backward edge phi divergence,
-        // because analyzing the cycle header's phis requires the fully
-        // established sync-SSA.
-        auto it = m_syncSsa.cycleHeaderBackwardValues.find(cycle);
-        if (it != m_syncSsa.cycleHeaderBackwardValues.end() &&
-            it->second != tag) {
+      for (const auto &cycleState : m_syncSsa.cycles) {
+        // We may have to propagate a cycle fully in order to be able to
+        // analyze the heart's phi.
+        if (!cycleState.latch.isUndef() && cycleState.latch != value) {
           pendingCycle = true;
           break;
         }
 
-        // For exiting value tags, it is sufficient to know _that_ there is
-        // divergence, so as soon as the virtual value is 0 (indicating
-        // divergence) we no longer need more detail in the sync-SSA.
-        it = m_syncSsa.cycleExitingValues.find(cycle);
-        if (it != m_syncSsa.cycleExitingValues.end() &&
-            !it->second.isSpecial() && it->second != tag) {
+        if (!cycleState.heartForwardIncoming.isUndef() &&
+            cycleState.heartForwardIncoming != value) {
+          pendingCycle = true;
+          break;
+        }
+
+        // HAPO keeps cycles contiguous, but we could have marked a cycle exit
+        // if the exit was via a back edge.
+        if (!cycleState.exit.isUndef() && cycleState.exit != value) {
           pendingCycle = true;
           break;
         }
@@ -259,111 +317,204 @@ void GenericUniformAnalysisBase::syncSsaRun(unsigned hapoBound) {
         break;
     }
 
-    for (CfgBlockRef succ : m_iface.getSuccessors(block, tmpBlocks)) {
+    if (blockCycle != currentCycle) {
+      // We're entering a cycle. It's possible that we're entering a nested
+      // cycle via a side entrance.
+      SmallVector<const GenericCycleBase *, 4> enteredCycles;
+      for (const GenericCycleBase *cycle = blockCycle; cycle != currentCycle;
+           cycle = cycle->getParent())
+        enteredCycles.push_back(cycle);
+
+      for (const auto *cycle : llvm::reverse(enteredCycles))
+        m_syncSsa.cycles.emplace_back(cycle);
+
+      currentCycle = blockCycle;
+
+      BlockHandle heart = m_convergenceInfo.getHeartBlock(blockCycle);
+      if (!heart)
+        heart = blockCycle->getHeader();
+
+      if (block == heart) {
+        // Propagation for (effective) heart blocks is delayed so that we can
+        // properly analyze the effects of side entrances during the 0-th
+        // iteration.
+        m_syncSsa.cycles.back().heartForwardIncoming = value;
+        continue;
+      }
+    }
+
+    tmpBlocks.clear();
+    m_iface.appendSuccessors(block, tmpBlocks);
+    for (BlockHandle succ : tmpBlocks) {
       unsigned succHapoIndex = m_hapoIndex[succ];
-      syncSsaPropagateEdge(block, hapoIndex, blockCycle, succ, succHapoIndex,
-                           tag);
+      syncSsaPropagateEdge(hapoIndex, blockCycle, succ, succHapoIndex, value);
     }
   }
 
-  // Analyze incoming backward edges of cycle headers and detect cycle exit
-  // divergence.
-  for (const auto &entry : m_syncSsa.cycleHeaderBackwardValues) {
-    const GenericCycleBase *cycle = entry.first;
-    if (entry.second.isSpecial()) {
-      unsigned headerHapoIndex = m_hapoIndex[cycle->getHeader()];
-      syncSsaAnalyzePhis(headerHapoIndex, false);
-    }
-
-    auto exitingValueIt = m_syncSsa.cycleExitingValues.find(cycle);
-    if (exitingValueIt != m_syncSsa.cycleExitingValues.end()) {
-      if (entry.second.isSpecial() || exitingValueIt->second.isSpecial() ||
-          entry.second != exitingValueIt->second) {
-        // The cycle has exit divergence caused by the currently analyzed
-        // divergent terminator.
-        CycleSync &cycleSync = m_cycleSync[cycle];
-        if (!cycleSync.divergentExit) {
-          cycleSync.divergentExit = true;
-
-          LLVM_DEBUG(dbgs() << "EXIT DIVERGENCE: " << cycle->print(printer()) << '\n');
-
-          m_uniformInfo.m_divergentCycleExits.insert(cycle);
-          m_cycleWorklist.push_back(cycle);
-        }
-      }
-    }
+  while (!m_syncSsa.cycles.empty()) {
+    const SyncSsaCycleState &cycleState = m_syncSsa.cycles.back();
+    syncSsaTestCycleDivergence(cycleState);
+    m_syncSsa.cycles.pop_back();
   }
 
   // Clear the virtual SSA values for re-use of the vector.
-  std::fill(m_syncSsa.values.begin() + hapoBound,
-            m_syncSsa.values.begin() + initialHapoBound,
-            -1);
-  m_syncSsa.cycleHeaderBackwardValues.clear();
-  m_syncSsa.cycleExitingValues.clear();
+  std::fill(m_syncSsa.values.begin() + m_syncSsa.hapoLower,
+            m_syncSsa.values.begin() + initialHapoUpper,
+            SyncSsaValue{});
+  m_syncSsa.hapoLower = ~0u;
+  m_syncSsa.hapoUpper = 0;
 }
 
-// Helper function for propagating a virtual SSA value along a CFG edge.
-void GenericUniformAnalysisBase::syncSsaPropagateEdge(
-    CfgBlockRef block, unsigned blockHapoIndex,
-    const GenericCycleBase *blockCycle,
-    CfgBlockRef succ, unsigned succHapoIndex, SyncSsaValue value) {
-  const GenericCycleBase *succCycle = m_cycleInfo.getCycle(succ);
+// Helper function for syncSsaRun that is used when a cycle has been
+// sufficiently propagated.
+void GenericUniformAnalysisBase::syncSsaTestCycleDivergence(
+    const SyncSsaCycleState &cycleState) {
+  const GenericCycleBase *cycle = cycleState.cycle;
 
-  LLVM_DEBUG(dbgs() << "  hapo(" << blockHapoIndex << ':'
-                    << printer().printableBlockName(block) << ") -> hapo("
-                    << succHapoIndex << ':'
-                    << printer().printableBlockName(succ) << "): " << value
-                    << '\n');
+  BlockHandle heart = m_convergenceInfo.getHeartBlock(cycle);
+  if (!heart)
+    heart = cycle->getHeader();
 
-  if (succHapoIndex >= blockHapoIndex) {
-    // This is a backwards edge
-    assert(succCycle->getHeader() == succ);
-
-    // Track backward phi values to detect divergence in loop header phis.
-    auto backwardValueIt = m_syncSsa.cycleHeaderBackwardValues.find(succCycle);
-    if (backwardValueIt == m_syncSsa.cycleHeaderBackwardValues.end()) {
-      m_syncSsa.cycleHeaderBackwardValues.try_emplace(succCycle, value);
-    } else if (backwardValueIt->second != value) {
-      backwardValueIt->second = SyncSsaValue::makeSpecial();
-      LLVM_DEBUG(dbgs() << "    backwards phi\n");
-    }
-  } else {
-    // Regular propagation of value tags.
-    SyncSsaValue succTag = m_syncSsa.values[succHapoIndex];
-    if (succTag.isUndef() || succTag.isSpecial()) {
-      // The block hasn't been set yet, tag it with the incoming value tag.
-      m_syncSsa.values[succHapoIndex] = value;
-      m_syncSsa.pending[succHapoIndex] = true;
-      m_syncSsa.numPending++;
-    } else if (succTag != value &&
-               (!succTag.isPhi() || succTag.getPhiIndex() != succHapoIndex)) {
-      // The block has a different, non-undef value tag, but it's not a
-      // self-reference, i.e. there isn't a virtual phi node here yet.
-      // Insert one and check whether any real phi nodes become divergent.
-      //
-      // The successor block is already pending, so no need to update
-      // the pending status.
-      assert(m_syncSsa.pending[succHapoIndex]);
-      m_syncSsa.values[succHapoIndex] = SyncSsaValue::makePhi(succHapoIndex);
-
-      LLVM_DEBUG(dbgs() << "    forward phi\n");
-
-      syncSsaAnalyzePhis(succHapoIndex, true);
+  // Analyze phis in the heart. Note that this covers both the case where the
+  // contains the source of divergence and where it does not.
+  //
+  // The sync-SSA value here is the value fed into the cycle's
+  // (effective) heart on the _next_ iteration from the one we're
+  // analyzing.
+  SyncSsaValue nextIterationValue = cycleState.heartForwardIncoming;
+  if (!cycleState.latch.isUndef()) {
+    if (nextIterationValue.isUndef())
+      nextIterationValue = cycleState.latch;
+    else if (nextIterationValue != cycleState.latch)
+      nextIterationValue = SyncSsaValue::makeSpecial();
+  }
+  if (nextIterationValue.isSpecial() || nextIterationValue.isPhi()) {
+    unsigned heartHapoIndex = m_hapoIndex[heart];
+    if (nextIterationValue.isSpecial() ||
+        nextIterationValue.getPhiIndex() == heartHapoIndex) {
+      syncSsaAnalyzePhis(heartHapoIndex, AnalyzePhiEdges::Both);
     }
   }
 
-  // Track cycle exiting value tags (both forward and backward edges can exit
-  // a cycle).
-  for (const GenericCycleBase *exitingCycle = blockCycle;
-       !m_cycleInfo.contains(exitingCycle, succCycle);
-       exitingCycle = exitingCycle->getParent()) {
-    auto exitingValueIt = m_syncSsa.cycleExitingValues.find(exitingCycle);
-    if (exitingValueIt == m_syncSsa.cycleExitingValues.end()) {
-      m_syncSsa.cycleExitingValues.try_emplace(exitingCycle, value);
-    } else if (exitingValueIt->second != value) {
-      exitingValueIt->second = SyncSsaValue::makeSpecial();
-      LLVM_DEBUG(dbgs() << "    exiting phi (cycle: "
-                        << exitingCycle->print(printer()) << ")\n");
+  // Detect the "normal" case of cycle exit divergence:
+  bool exitDivergence = false;
+  if (!cycleState.exit.isUndef() && !cycleState.latch.isUndef()) {
+    if (cycleState.exit != cycleState.latch ||
+        cycleState.exit.isSpecial() || cycleState.latch.isSpecial())
+      exitDivergence = true;
+  }
+
+  // Detect the special case of exit divergence in cycles that aren't
+  // natural loops or have their heart outside of the header.
+  // If the control divergence started outside of the cycle, we may
+  // have incoming sync-SSA values both for the heart (1st iteration)
+  // _and_ for non-heart entrances to the cycle that immediately exit
+  // (0-th iteration). If those values are different, the cycle
+  // has exit divergence.
+  if (!cycleState.exit.isUndef() &&
+      !cycleState.heartForwardIncoming.isUndef()) {
+    if (cycleState.heartForwardIncoming != cycleState.exit)
+      exitDivergence = true;
+  }
+
+  if (exitDivergence) {
+    // The cycle has exit divergence caused by the currently analyzed
+    // control divergence.
+    CycleSync &cycleSync = m_cycleSync[cycle];
+    if (!cycleSync.divergentExit) {
+      cycleSync.divergentExit = true;
+
+      LLVM_DEBUG(dbgs() << "EXIT DIVERGENCE: "
+                        << cycle->print(m_iface) << '\n');
+
+      m_uniformInfo.m_divergentCycleExits.insert(cycle);
+      m_cycleWorklist.push_back(cycle);
+    }
+  }
+}
+
+/// Helper function that propagates a sync-SSA value into \p succ, with the
+/// value originating at the given HAPO index \p fromHapoIndex (which is used
+/// to distinguish between forward and backward edges) and \p fromCycle
+/// (which is used to record cycle exit values).
+void GenericUniformAnalysisBase::syncSsaPropagateEdge(
+    unsigned fromHapoIndex, const GenericCycleBase *fromCycle,
+    BlockHandle succ, unsigned succHapoIndex, SyncSsaValue value) {
+  const GenericCycleBase *succCycle = m_cycleInfo.getCycle(succ);
+
+  LLVM_DEBUG(dbgs() << "  hapo(" << fromHapoIndex << ':'
+                    << m_iface.printableName(m_hapo[fromHapoIndex])
+                    << ") -> hapo(" << succHapoIndex << ':'
+                    << m_iface.printableName(succ) << "): " << value
+                    << '\n');
+
+  // Track cycle exit values (both forward and backward edges can exit a cycle).
+  unsigned stackIndex = m_syncSsa.cycles.size();
+
+  while (!m_cycleInfo.contains(fromCycle, succCycle)) {
+    SyncSsaCycleState &cycleState = m_syncSsa.cycles[stackIndex - 1];
+    assert(fromCycle == cycleState.cycle);
+
+    if (cycleState.exit.isUndef())
+      cycleState.exit = value;
+    else if (cycleState.exit != value)
+      cycleState.exit = SyncSsaValue::makeSpecial();
+
+    LLVM_DEBUG(dbgs() << "    exit cycle (header: "
+                      << m_iface.printableName(fromCycle->getHeader())
+                      << "): value = " << cycleState.exit << '\n');
+
+    fromCycle = fromCycle->getParent();
+    --stackIndex;
+
+    if (stackIndex == 0) {
+      m_syncSsa.cycles.insert(m_syncSsa.cycles.begin(),
+                              SyncSsaCycleState{fromCycle});
+      ++stackIndex;
+    }
+  }
+
+  if (succHapoIndex >= fromHapoIndex) {
+    // This is a back edge.
+    BlockHandle heart = m_convergenceInfo.getHeartBlock(fromCycle);
+    if (!heart)
+      heart = fromCycle->getHeader();
+
+    if (succ == heart) {
+      SyncSsaCycleState &cycleState = m_syncSsa.cycles[stackIndex - 1];
+
+      if (cycleState.latch.isUndef())
+        cycleState.latch = value;
+      else if (cycleState.latch != value)
+        cycleState.latch = SyncSsaValue::makeSpecial();
+
+      LLVM_DEBUG(dbgs() << "    latch cycle (heart: "
+                        << m_iface.printableName(heart) << "): value = "
+                        << cycleState.latch << '\n');
+    } else {
+      // Back edge that doesn't go to a heart: cycle reentrancy.
+      LLVM_DEBUG(dbgs() << "TODO: back edge doesn't go to a heart!\n");
+    }
+  } else {
+    // Regular propagation of sync-SSA values for a forward edge.
+    SyncSsaValue succValue = m_syncSsa.values[succHapoIndex];
+    assert(!succValue.isSpecial());
+    if (succValue.isUndef()) {
+      // The block hasn't been set yet, tag it with the incoming value tag.
+      m_syncSsa.values[succHapoIndex] = value;
+      m_syncSsa.pending[succHapoIndex] = true;
+      m_syncSsa.hapoLower = std::min(m_syncSsa.hapoLower, succHapoIndex);
+      m_syncSsa.hapoUpper = std::max(m_syncSsa.hapoUpper, succHapoIndex + 1);
+    } else if (succValue != value &&
+               (!succValue.isPhi() || succValue.getPhiIndex() != succHapoIndex)) {
+      // The block has a different, non-undef value tag so far, so we should
+      // have a sync-SSA phi here.
+      assert(m_syncSsa.pending[succHapoIndex]);
+      m_syncSsa.values[succHapoIndex] = SyncSsaValue::makePhi(succHapoIndex);
+
+      LLVM_DEBUG(dbgs() << "TODO: re-entrance check!\n");
+
+      LLVM_DEBUG(dbgs() << "    forward phi\n");
     }
   }
 }
@@ -372,24 +523,25 @@ void GenericUniformAnalysisBase::syncSsaPropagateEdge(
 /// the block of the given hapo index. Checks if this causes actual phis to
 /// become divergent.
 ///
-/// \param forwardEdges whether to consider forward edges or backward edges.
+/// \param edges which edges to consider. TODO: this check may be redundant!
 void GenericUniformAnalysisBase::syncSsaAnalyzePhis(unsigned blockHapoIndex,
-                                                    bool forwardEdges) {
+                                                    AnalyzePhiEdges edges) {
   assert(m_inPropagate);
 
   SmallVector<TypeErasedPhi, 4> phis;
   typeErasedAppendUniformPhis(m_hapo[blockHapoIndex], phis);
 
   for (const TypeErasedPhi &phi : phis) {
-    CfgValueRef value;
+    SsaValueHandle value;
     for(const PhiInput &input : phi.inputs) {
       unsigned inputHapoIndex = m_hapoIndex[input.predBlock];
       bool isForwardEdge = inputHapoIndex > blockHapoIndex;
-      if (isForwardEdge != forwardEdges)
+      if ((edges == AnalyzePhiEdges::Forward && !isForwardEdge) ||
+          (edges == AnalyzePhiEdges::Backward && isForwardEdge))
         continue;
 
       if (m_syncSsa.values[inputHapoIndex].isUndef())
-        continue; // predecessor not reachable from divergent terminator
+        continue; // predecessor not reachable from source of control divergence
 
       if (!value) {
         value = input.value;
@@ -404,7 +556,7 @@ void GenericUniformAnalysisBase::syncSsaAnalyzePhis(unsigned blockHapoIndex,
 /// Called when a divergent terminator of \p divergentBlock has been found.
 /// Propagate control divergence using sync-SSA.
 void GenericUniformAnalysisBase::analyzeDivergentTerminator(
-    CfgBlockRef divergentBlock) {
+    BlockHandle divergentBlock) {
   syncSsaInit();
 
   // Generate initial virtual SSA values for the divergent terminator's
@@ -417,18 +569,22 @@ void GenericUniformAnalysisBase::analyzeDivergentTerminator(
   unsigned divergentHapoIndex = hapoIt->second;
   const GenericCycleBase *divergentCycle = m_cycleInfo.getCycle(divergentBlock);
 
+  m_syncSsa.values[divergentHapoIndex] = SyncSsaValue::makeSpecial();
+  m_syncSsa.hapoLower = divergentHapoIndex;
+  m_syncSsa.hapoUpper = divergentHapoIndex + 1;
+
   unsigned initialIndex = 0;
-  SmallVector<CfgBlockRef, 4> tmpBlocks;
-  for (CfgBlockRef succ : m_iface.getSuccessors(divergentBlock, tmpBlocks)) {
+  SmallVector<BlockHandle, 4> tmpBlocks;
+  m_iface.appendSuccessors(divergentBlock, tmpBlocks);
+  for (BlockHandle succ : tmpBlocks) {
     unsigned succHapoIndex = m_hapoIndex[succ];
-    syncSsaPropagateEdge(divergentBlock, divergentHapoIndex, divergentCycle,
+    syncSsaPropagateEdge(divergentHapoIndex, divergentCycle,
                          succ, succHapoIndex,
                          SyncSsaValue::makeInitial(initialIndex));
     initialIndex++;
   }
 
-  m_syncSsa.values[divergentHapoIndex] = SyncSsaValue::makeSpecial();
-  syncSsaRun(divergentHapoIndex + 1);
+  syncSsaRun();
 }
 
 /// Called for a cycle with divergent exit.
@@ -439,47 +595,50 @@ void GenericUniformAnalysisBase::analyzeDivergentTerminator(
 void GenericUniformAnalysisBase::analyzeDivergentCycleExit(const GenericCycleBase *cycle) {
   syncSsaInit();
 
-  unsigned hapoBound = 0;
   unsigned initialIndex = 0;
-  SmallVector<CfgBlockRef, 4> tmpBlocks;
-  SmallVector<CfgValueRef, 8> definedUniformValues;
-  for (CfgBlockRef block : cycle->blocks()) {
+  SmallVector<BlockHandle, 4> tmpBlocks;
+  SmallVector<SsaValueHandle, 8> definedUniformValues;
+  for (BlockHandle block : cycle->blocks()) {
     typeErasedAppendDefinedUniformValues(block, definedUniformValues);
-    for (CfgValueRef value : definedUniformValues)
+    for (SsaValueHandle value : definedUniformValues)
       typeErasedPropagateUses(value, cycle);
     definedUniformValues.clear();
 
     bool isExiting = false;
     unsigned blockHapoIndex = ~0u;
-    for (CfgBlockRef succ : m_iface.getSuccessors(block, tmpBlocks)) {
+    tmpBlocks.clear();
+    m_iface.appendSuccessors(block, tmpBlocks);
+    for (BlockHandle succ : tmpBlocks) {
        if (cycle->containsBlock(succ))
          continue;
 
        if (!isExiting) {
          assert(m_hapoIndex.count(block));
          blockHapoIndex = m_hapoIndex[block];
-         hapoBound = std::max(hapoBound, blockHapoIndex + 1);
+         m_syncSsa.hapoLower = std::min(m_syncSsa.hapoLower, blockHapoIndex);
+         m_syncSsa.hapoUpper =
+             std::max(m_syncSsa.hapoUpper, blockHapoIndex + 1);
          isExiting = true;
 
          m_syncSsa.values[blockHapoIndex] = SyncSsaValue::makeSpecial();
        }
 
        unsigned succHapoIndex = m_hapoIndex[succ];
-       syncSsaPropagateEdge(block, blockHapoIndex, cycle->getParent(),
+       syncSsaPropagateEdge(blockHapoIndex, cycle->getParent(),
                             succ, succHapoIndex,
                             SyncSsaValue::makeInitial(initialIndex));
        initialIndex++;
     }
   }
 
-  syncSsaRun(hapoBound);
+  syncSsaRun();
 }
 
 /// Called for a divergent terminator in \p divergentBlock. Determine whether
 /// the block is part of a re-entrant cycle and handle the resulting
 /// divergence (though calling \p propagate if required is the caller's
 /// responsibility).
-void GenericUniformAnalysisBase::analyzeDivergentReentrantCycles(CfgBlockRef divergentBlock) {
+void GenericUniformAnalysisBase::analyzeDivergentReentrantCycles(BlockHandle divergentBlock) {
   // When a re-entrant cycle is detected, mark _all_ values defined in blocks
   // reachable without going through the heart as divergent.
   //
@@ -520,8 +679,8 @@ void GenericUniformAnalysisBase::analyzeDivergentReentrantCycles(CfgBlockRef div
        cycle != m_cycleInfo.getRoot(); cycle = cycle->getParent()) {
     if (inReentrantCycle(divergentBlock, cycle)) {
       LLVM_DEBUG(dbgs() << "REENTRANT DIVERGENCE: block "
-                        << printer().printableBlockName(divergentBlock)
-                        << " for cycle " << cycle->print(printer()) << '\n');
+                        << m_iface.printableName(divergentBlock)
+                        << " for cycle " << cycle->print(m_iface) << '\n');
 
       CycleSync& cycleSync = m_cycleSync[cycle];
       if (!cycleSync.divergentReentrance) {
@@ -529,13 +688,13 @@ void GenericUniformAnalysisBase::analyzeDivergentReentrantCycles(CfgBlockRef div
 
         const CycleReentranceInfo &reentranceInfo = getCycleReentranceInfo(cycle);
         size_t worklistSize = m_valueWorklist.size();
-        for (CfgBlockRef block : reentranceInfo.reachableWithoutHeart) {
+        for (BlockHandle block : reentranceInfo.reachableWithoutHeart) {
           if (!m_divergentReentranceBlocks.insert(block).second)
             continue;
           typeErasedAppendDefinedUniformValues(block, m_valueWorklist);
         }
 
-        for (CfgValueRef value : llvm::make_range(m_valueWorklist.begin() + worklistSize,
+        for (SsaValueHandle value : llvm::make_range(m_valueWorklist.begin() + worklistSize,
                                                   m_valueWorklist.end())) {
           m_uniformInfo.m_divergentValues.insert(value);
         }
@@ -548,19 +707,19 @@ void GenericUniformAnalysisBase::analyzeDivergentReentrantCycles(CfgBlockRef div
 const GenericUniformAnalysisBase::CycleReentranceInfo &
 GenericUniformAnalysisBase::getCycleReentranceInfo(const GenericCycleBase *cycle) {
   static CycleReentranceInfo emptyInfo;
-  CfgBlockRef heartBlock = m_convergenceInfo.getHeartBlock(cycle);
+  BlockHandle heartBlock = m_convergenceInfo.getHeartBlock(cycle);
   if (!heartBlock || heartBlock == cycle->getHeader())
     return emptyInfo;
 
   auto blocksIt = m_reentrantCycleBlocks.find(cycle);
   if (blocksIt == m_reentrantCycleBlocks.end()) {
     CycleReentranceInfo info;
-    SmallVector<CfgBlockRef, 8> worklist;
+    SmallVector<BlockHandle, 8> worklist;
     worklist.push_back(cycle->getHeader());
 
     // Forward search from header. Do this first, because it is cheaper on LLVM IR.
     do {
-      CfgBlockRef current = worklist.pop_back_val();
+      BlockHandle current = worklist.pop_back_val();
       if (!m_cycleInfo.contains(cycle, m_cycleInfo.getCycle(current)))
         continue;
       if (m_domTree.dominatesBlock(heartBlock, current))
@@ -570,9 +729,9 @@ GenericUniformAnalysisBase::getCycleReentranceInfo(const GenericCycleBase *cycle
     } while (!worklist.empty());
 
     // Backward search.
-    auto backwardSearchInto = [&](DenseSet<CfgBlockRef> &set) {
+    auto backwardSearchInto = [&](DenseSet<BlockHandle> &set) {
       do {
-        CfgBlockRef current = worklist.pop_back_val();
+        BlockHandle current = worklist.pop_back_val();
         if (!m_cycleInfo.contains(cycle, m_cycleInfo.getCycle(current)))
           continue;
         if (info.reachableWithoutHeart.count(current) == 0)
@@ -593,7 +752,7 @@ GenericUniformAnalysisBase::getCycleReentranceInfo(const GenericCycleBase *cycle
 
 /// Determine whether there is a cycle through \p block and the header of
 /// \p cycle which does not go through the (presumed) heart of \p cycle.
-bool GenericUniformAnalysisBase::inReentrantCycle(CfgBlockRef block,
+bool GenericUniformAnalysisBase::inReentrantCycle(BlockHandle block,
                                                   const GenericCycleBase *cycle) {
   const auto &info = getCycleReentranceInfo(cycle);
   return info.reentrantCycle.count(block);
@@ -605,21 +764,20 @@ void GenericUniformAnalysisBase::propagate() {
 
   do {
     while (!m_valueWorklist.empty()) {
-      CfgValueRef value = m_valueWorklist.pop_back_val();
+      SsaValueHandle value = m_valueWorklist.pop_back_val();
       assert(m_uniformInfo.m_divergentValues.count(value));
 
-      LLVM_DEBUG(dbgs() << "PROPAGATE: " << printer().printableValue(value)
-                        << '\n');
+      LLVM_DEBUG(dbgs() << "PROPAGATE: " << m_iface.printable(value) << '\n');
 
       typeErasedPropagateUses(value, nullptr);
     }
 
     while (!m_blockWorklist.empty()) {
-      CfgBlockRef block = m_blockWorklist.pop_back_val();
+      BlockHandle block = m_blockWorklist.pop_back_val();
       assert(m_uniformInfo.m_divergentBlocks.count(block));
 
       LLVM_DEBUG(dbgs() << "ANALYZE DIVERGENT TERMINATOR: "
-                        << printer().printableBlockName(block) << '\n');
+                        << m_iface.printableName(block) << '\n');
 
       analyzeDivergentTerminator(block);
       analyzeDivergentReentrantCycles(block);
@@ -630,7 +788,7 @@ void GenericUniformAnalysisBase::propagate() {
       assert(m_cycleSync[cycle].divergentExit);
 
       LLVM_DEBUG(dbgs() << "ANALYZE CYCLE WITH DIVERGENT EXIT: "
-                        << cycle->print(printer()) << '\n');
+                        << cycle->print(m_iface) << '\n');
 
       analyzeDivergentCycleExit(cycle);
     }

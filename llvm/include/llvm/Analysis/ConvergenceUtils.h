@@ -27,8 +27,15 @@ namespace llvm {
 
 class TargetTransformInfo;
 
+template <> class IConvergenceInfoSsaContextMixin<IrSsaContext> {
+public:
+  bool comesBefore(Instruction *lhs, Instruction *rhs) const {
+    return lhs->comesBefore(rhs);
+  }
+};
+
 /// \brief Convergence info for LLVM IR.
-class ConvergenceInfo : public GenericConvergenceInfo<IrCfgTraits> {
+class ConvergenceInfo : public GenericConvergenceInfo<IrSsaContext> {
 public:
   static ConvergenceInfo compute(const DominatorTree &domTree);
 
@@ -42,10 +49,25 @@ public:
 };
 
 
-using ConvergentOperation = GenericConvergentOperation<IrCfgTraits>;
+using ConvergentOperation = GenericConvergentOperation<IrSsaContext>;
+
+template <> class IUniformInfoSsaContextMixin<IrSsaContext> {
+public:
+  using Wrapper = IrSsaContext::Wrapper;
+
+  void appendBlockDefs(BasicBlock *block,
+                       SmallVectorImpl<SsaValueHandle> &defs) const {
+    for (Instruction &instr : *block) {
+      if (!instr.getType()->isVoidTy()) {
+        Value *def = &instr;
+        defs.push_back(Wrapper::wrapRef(def));
+      }
+    }
+  }
+};
 
 /// \brief Convergence-aware uniform info for LLVM IR.
-class UniformInfo : public GenericUniformInfo<IrCfgTraits>,
+class UniformInfo : public GenericUniformInfo<IrSsaContext>,
                     public IDivergenceAnalysis {
 public:
   bool isDivergent(const Value *value) const override final {

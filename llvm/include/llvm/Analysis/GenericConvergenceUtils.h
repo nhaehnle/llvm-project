@@ -16,12 +16,15 @@
 /// tokens.
 ///
 /// It contains:
-///  - a summary of convergent operations in a tree structure according to
-///    convergence control tokens
-///  - a cycle info that may be adjusted to ensure that controlled convergent
-///    operations are contained in the cycle in which their convergence control
-///    token was defined
-///  - information about the relevant heart in each cycle
+///  1. A summary of convergent operations in a tree structure according to
+///     convergence control tokens.
+///  2. Information about the relevant heart in each cycle.
+///  3. A cycle info in which:
+///   - cycles are "extended" if necessary to ensure that controlled convergent
+///     operations are contained in the cycle in which their convergence
+///     control token was defined,and
+///   - cycles are "flattened" if necessary to ensure that loop heart
+///     intrinsics reference a token defined in a direct parent cycle.
 ///
 ///
 /// \subsection Adjusted cycle info
@@ -60,13 +63,7 @@
 /// A, B, and C. Both "user" convergent operations are marked as being an
 /// "end of (their respective) cycle".
 ///
-///
-/// \subsection Hearts of cycles
-///
-/// The effective heart of a cycle can be contained in a descendant cycle, if
-/// the heart refers to a convergence control token that is defined outside.
-///
-/// Example 1 (effective heart in a child cycle):
+/// Example 3 (flattened cycles):
 ///
 ///      |
 ///      A        %a = anchor
@@ -78,16 +75,10 @@
 ///   ^-<D        %d = user (%c)
 ///      |
 ///
-/// The _adjusted_ cycle nest is:
+/// The _adjusted_ cycle nest contains only a single cycle with blocks B, C,
+/// and D.
 ///
-///   depth 1: header(B) C D
-///     depth 2: header(C) D
-///
-/// %c is the effective heart of both cycles, but note that \ref getCycle()
-/// on %c returns the inner cycle.
-///
-///
-/// Example 2 (irrelevant heart in a child cycle):
+/// Example 3 (irrelevant heart in a child cycle):
 ///
 ///      |
 ///      A
@@ -99,10 +90,14 @@
 ///   ^-<D        %d = user (%c)
 ///      |
 ///
-/// This example has the same (adjusted) cycle nest as the example above, but
-/// the outer cycle has no effective heart at all. The inner cycle has an
-/// effective heart, but it is not relevant for the outer cycle because it
-/// is anchored in the outer cycle.
+/// The adjusted cycle nest in this example only extends the inner cycle based
+/// on the user of %c:
+///
+///   depth 1: B, C, D
+///     depth 2: C, D
+///
+/// The inner cycle has an effective heart, but it is not relevant for the
+/// outer cycle because it is anchored in the outer cycle.
 ///
 ///
 /// \section Heart-adjusted post-order
@@ -129,11 +124,46 @@
 
 namespace llvm {
 
+class IConvergenceInfoSsaContext : public ICycleInfoSsaContext {
+public:
+  virtual bool comesBefore(InstructionHandle lhs,
+                           InstructionHandle rhs) const = 0;
+};
+
+template <typename SsaContextT> class IConvergenceInfoSsaContextMixin {
+  // bool comesBefore(InstructionRef lhs, InstructionRef rhs) const;
+};
+
+template <typename BaseT>
+class IConvergenceInfoSsaContextImplChain
+    : public BaseT,
+      public IConvergenceInfoSsaContextMixin<typename BaseT::SsaContext> {
+  using Mixin = IConvergenceInfoSsaContextMixin<typename BaseT::SsaContext>;
+public:
+  using SsaContext = typename BaseT::SsaContext;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
+
+  IConvergenceInfoSsaContextImplChain(BlockRef block) : BaseT(block) {}
+
+  bool comesBefore(InstructionHandle lhs, InstructionHandle rhs) const final {
+    return Mixin::comesBefore(Wrapper::unwrapRef(lhs), Wrapper::unwrapRef(rhs));
+  }
+};
+
+template <typename SsaContext, typename Base = IConvergenceInfoSsaContext>
+using IConvergenceInfoSsaContextImpl =
+    IConvergenceInfoSsaContextImplChain<ICycleInfoSsaContextImpl<SsaContext, Base>>;
+
+template <typename RefTypeT>
+using IConvergenceInfoSsaContextFor =
+    IConvergenceInfoSsaContextImpl<SsaContextFor<RefTypeT>>;
+
 class GenericConvergenceAnalysisBase;
 class GenericDominatorTreeBase;
 template <typename NodeT, bool IsPostDom> class DominatorTreeBase;
 
-template <typename CfgTraitsT> class GenericConvergenceInfo;
+template <typename SsaContextT> class GenericConvergenceInfo;
 
 /// Enum describing how instructions behave with respect to uniformity and
 /// divergence, to answer the question: if the same instruction is executed by
@@ -179,8 +209,8 @@ protected:
   friend class GenericConvergenceAnalysisBase;
   friend class GenericConvergenceInfoBase;
 
-  CfgBlockRef m_block;
-  CfgInstructionRef m_instruction;
+  BlockHandle m_block;
+  InstructionHandle m_instruction;
   Kind m_kind;
 
   GenericCycleBase *m_cycle = nullptr;
@@ -190,16 +220,16 @@ protected:
 
 public:
   GenericConvergentOperationBase(GenericConvergentOperationBase *parent,
-                                 Kind kind, CfgBlockRef block,
-                                 CfgInstructionRef instruction)
+                                 Kind kind, BlockHandle block,
+                                 InstructionHandle instruction)
       : m_block(block), m_instruction(instruction), m_kind(kind),
         m_parent(parent) {}
 
   GenericConvergentOperationBase *getParent() const { return m_parent; }
-  CfgBlockRef getBlock() const { return m_block; }
+  BlockHandle getBlock() const { return m_block; }
   Kind getKind() const { return m_kind; }
   const GenericCycleBase *getCycle() const { return m_cycle; }
-  CfgInstructionRef getInstruction() const { return m_instruction; }
+  InstructionHandle getInstruction() const { return m_instruction; }
 
   using const_child_iterator =
       std::vector<GenericConvergentOperationBase *>::const_iterator;
@@ -212,13 +242,13 @@ public:
   }
 };
 
-template <typename CfgTraitsT>
+template <typename SsaContextT>
 class GenericConvergentOperation : public GenericConvergentOperationBase {
 private:
-  friend class GenericConvergenceInfo<CfgTraitsT>;
+  friend class GenericConvergenceInfo<SsaContextT>;
 
   // Adaptor which changes an iterator over GenericConvergentOperationBase *
-  // into an iterator over GenericConvergentOperation<CfgTraits>.
+  // into an iterator over GenericConvergentOperation<SsaContext>.
   template <typename BaseIteratorT> struct cast_iterator_adaptor;
 
   template <typename BaseIteratorT>
@@ -246,20 +276,21 @@ private:
   };
 
 public:
-  using CfgTraits = CfgTraitsT;
-  using BlockRef = typename CfgTraits::BlockRef;
-  using InstructionRef = typename CfgTraits::InstructionRef;
-  using ValueRef = typename CfgTraits::ValueRef;
+  using SsaContext = SsaContextT;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
+  using InstructionRef = typename SsaContext::InstructionRef;
+  using ValueRef = typename SsaContext::ValueRef;
 
   GenericConvergentOperation *getParent() const {
     return static_cast<GenericConvergentOperation *>(m_parent);
   }
-  BlockRef getBlock() const { return CfgTraits::unwrapRef(m_block); }
-  const GenericCycle<CfgTraits> *getCycle() const {
-    return static_cast<const GenericCycle<CfgTraits> *>(m_cycle);
+  BlockRef getBlock() const { return Wrapper::unwrapRef(m_block); }
+  const GenericCycle<SsaContext> *getCycle() const {
+    return static_cast<const GenericCycle<SsaContext> *>(m_cycle);
   }
   InstructionRef getInstruction() const {
-    return CfgTraits::unwrapRef(m_instruction);
+    return Wrapper::unwrapRef(m_instruction);
   }
 
   cast_iterator_adaptor<GenericConvergentOperationBase::const_child_iterator>
@@ -281,6 +312,7 @@ class GenericConvergenceInfoBase {
   friend class GenericConvergenceAnalysisBase;
 
 public:
+  using Interface = IConvergenceInfoSsaContext;
   using ConvergentOperation = GenericConvergentOperationBase;
 
 protected:
@@ -289,13 +321,13 @@ protected:
     std::vector<GenericConvergentOperationBase *> operations;
   };
 
-  DenseMap<CfgInstructionRef, std::unique_ptr<GenericConvergentOperationBase>>
+  DenseMap<InstructionHandle, std::unique_ptr<GenericConvergentOperationBase>>
       m_operation;
-  DenseMap<CfgBlockRef, ConvergenceBlockInfo> m_block;
+  DenseMap<BlockHandle, ConvergenceBlockInfo> m_block;
   DenseMap<GenericCycleBase *, GenericConvergentOperationBase *> m_heart;
   std::vector<GenericConvergentOperationBase *> m_roots;
 
-  const ConvergenceBlockInfo &lookupBlock(CfgBlockRef block) const {
+  const ConvergenceBlockInfo &lookupBlock(BlockHandle block) const {
     auto blockIt = m_block.find(block);
     if (blockIt != m_block.end())
       return blockIt->second;
@@ -316,8 +348,8 @@ public:
 
   void clear();
 
-  CfgBlockRef getHeartBlock(const GenericCycleBase *cycle) const;
-  GenericConvergentOperationBase *getOperation(CfgInstructionRef instruction);
+  BlockHandle getHeartBlock(const GenericCycleBase *cycle) const;
+  GenericConvergentOperationBase *getOperation(InstructionHandle instruction);
 
   using const_root_iterator =
       std::vector<GenericConvergentOperationBase *>::const_iterator;
@@ -330,50 +362,50 @@ public:
   using const_block_iterator =
       std::vector<GenericConvergentOperationBase *>::const_iterator;
 
-  const_block_iterator block_begin(CfgBlockRef block) const {
+  const_block_iterator block_begin(BlockHandle block) const {
     return lookupBlock(block).operations.begin();
   }
-  const_block_iterator block_end(CfgBlockRef block) const {
+  const_block_iterator block_end(BlockHandle block) const {
     return lookupBlock(block).operations.end();
   }
 
-  auto block(CfgBlockRef block) const {
+  auto block(BlockHandle block) const {
     const ConvergenceBlockInfo &blockInfo = lookupBlock(block);
     return llvm::make_range(blockInfo.operations.begin(),
                             blockInfo.operations.end());
   }
 
   bool validate(const GenericCycleInfoBase &cycleInfo) const;
-  void print(const CfgPrinter &printer, const GenericCycleInfoBase &cycleInfo,
+  void print(const ISsaContext &iface, const GenericCycleInfoBase &cycleInfo,
              raw_ostream &out) const;
 
   // Updating the convergence info based on changes made to the IR.
   //
-  // Note: Changes that would extend/shrink cycles are currently _not_
-  //       supported here at all!
+  // Note: Changes that would imply changes to the adjusted cycle info in any
+  //       way are currently not supported here at all!
   ConvergentOperation *
-  insertOperation(const CfgInterface &iface, GenericCycleInfoBase &cycleInfo,
+  insertOperation(const Interface &iface, GenericCycleInfoBase &cycleInfo,
                   ConvergentOperation *parent, ConvergentOperation::Kind kind,
-                  CfgBlockRef block, CfgInstructionRef instruction);
+                  BlockHandle block, InstructionHandle instruction);
   void eraseOperation(GenericCycleInfoBase &cycleInfo, ConvergentOperation *op);
 
 private:
   void registerHeart(ConvergentOperation *heart);
-  void unregisterHeart(ConvergentOperation *heart);
 };
 
 /// \brief Base class for CFG-specific convergence info.
 ///
 /// Derive from this class using CRTP and implement the CFG-specific bits of
 /// the analysis.
-template <typename CfgTraitsT>
+template <typename SsaContextT>
 class GenericConvergenceInfo : public GenericConvergenceInfoBase {
 public:
-  using CfgTraits = CfgTraitsT;
-  using BlockRef = typename CfgTraits::BlockRef;
-  using InstructionRef = typename CfgTraits::InstructionRef;
-  using CycleInfo = GenericCycleInfo<CfgTraits>;
-  using ConvergentOperation = GenericConvergentOperation<CfgTraits>;
+  using SsaContext = SsaContextT;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
+  using InstructionRef = typename SsaContext::InstructionRef;
+  using CycleInfo = GenericCycleInfo<SsaContext>;
+  using ConvergentOperation = GenericConvergentOperation<SsaContext>;
 
 private:
   CycleInfo m_cycleInfo;
@@ -387,15 +419,15 @@ public:
   CycleInfo &getCycleInfo() { return m_cycleInfo; }
   const CycleInfo &getCycleInfo() const { return m_cycleInfo; }
 
-  BlockRef getHeartBlock(const GenericCycle<CfgTraits> *cycle) const {
-    return CfgTraits::unwrapRef(
+  BlockRef getHeartBlock(const GenericCycle<SsaContext> *cycle) const {
+    return Wrapper::unwrapRef(
         GenericConvergenceInfoBase::getHeartBlock(cycle));
   }
 
   ConvergentOperation *getOperation(InstructionRef instruction) {
     return static_cast<ConvergentOperation *>(
         GenericConvergenceInfoBase::getOperation(
-            CfgTraits::wrapRef(instruction)));
+            Wrapper::wrapRef(instruction)));
   }
 
   using const_root_iterator =
@@ -413,15 +445,15 @@ public:
 
   auto block_begin(BlockRef block) const {
     return const_block_iterator{
-        GenericConvergenceInfoBase::block_begin(CfgTraits::wrapRef(block))};
+        GenericConvergenceInfoBase::block_begin(Wrapper::wrapRef(block))};
   }
   auto block_end(BlockRef block) const {
     return const_block_iterator{
-        GenericConvergenceInfoBase::block_end(CfgTraits::wrapRef(block))};
+        GenericConvergenceInfoBase::block_end(Wrapper::wrapRef(block))};
   }
 
   auto block(BlockRef block) const {
-    auto range = GenericConvergenceInfoBase::block(CfgTraits::wrapRef(block));
+    auto range = GenericConvergenceInfoBase::block(Wrapper::wrapRef(block));
     return llvm::make_range(const_block_iterator(range.begin()),
                             const_block_iterator(range.end()));
   }
@@ -430,10 +462,8 @@ public:
     return GenericConvergenceInfoBase::validate(m_cycleInfo);
   }
   void print(raw_ostream &out) const {
-    GenericConvergenceInfoBase::print(
-        CfgPrinterImpl<CfgTraits>(CfgInterfaceImpl<CfgTraits>(
-            CfgTraits::getBlockParent(m_cycleInfo.getRoot()->getHeader()))),
-        m_cycleInfo, out);
+    ISsaContextImpl<SsaContext> iface(m_cycleInfo.getRoot()->getHeader());
+    GenericConvergenceInfoBase::print(iface, m_cycleInfo, out);
   }
   LLVM_DUMP_METHOD
   void dump() const { print(dbgs()); }
@@ -446,11 +476,12 @@ public:
                                        typename ConvergentOperation::Kind kind,
                                        BlockRef block,
                                        InstructionRef instruction) {
+    IConvergenceInfoSsaContextImpl<SsaContext>
+        iface(m_cycleInfo.getRoot()->getHeader());
     return static_cast<ConvergentOperation *>(
         GenericConvergenceInfoBase::insertOperation(
-            CfgInterfaceImpl<CfgTraits>(CfgTraits::getBlockParent(block)),
-            m_cycleInfo, parent, kind, CfgTraits::wrapRef(block),
-            CfgTraits::wrapRef(instruction)));
+            iface, m_cycleInfo, parent, kind, Wrapper::wrapRef(block),
+            Wrapper::wrapRef(instruction)));
   }
 
   void eraseOperation(ConvergentOperation *op) {
@@ -476,111 +507,162 @@ public:
 /// Note that this function computes the _non-reversed_ heart-adjusted
 /// post order, so you'd typically use it as llvm::reverse(hapo).
 class HeartAdjustedPostOrderBase {
-  std::vector<CfgBlockRef> m_order;
+  std::vector<BlockHandle> m_order;
 
 public:
-  using const_iterator = std::vector<CfgBlockRef>::const_iterator;
+  using const_iterator = std::vector<BlockHandle>::const_iterator;
 
   bool empty() const { return m_order.empty(); }
   size_t size() const { return m_order.size(); }
 
   void clear() { m_order.clear(); }
-  void compute(const CfgInterface &iface,
+  void compute(const ICycleInfoSsaContext &iface,
                const GenericConvergenceInfoBase &convergenceInfo,
                const GenericCycleInfoBase &cycleInfo,
                const GenericDominatorTreeBase &domTree);
 
   const_iterator begin() const { return m_order.begin(); }
   const_iterator end() const { return m_order.end(); }
-  CfgBlockRef operator[](size_t idx) const { return m_order[idx]; }
+  BlockHandle operator[](size_t idx) const { return m_order[idx]; }
 };
 
 /// \brief Convergence-adjusted post order.
-template <typename CfgTraitsT>
+template <typename SsaContextT>
 class HeartAdjustedPostOrder : public HeartAdjustedPostOrderBase {
 public:
-  using CfgTraits = CfgTraitsT;
-  using BlockRef = typename CfgTraits::BlockRef;
+  using SsaContext = SsaContextT;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
   using DomTree =
       DominatorTreeBase<typename std::pointer_traits<BlockRef>::element_type,
                         false>;
 
-  void compute(const GenericConvergenceInfo<CfgTraits> &convergenceInfo,
+  void compute(const GenericConvergenceInfo<SsaContext> &convergenceInfo,
                const DomTree &domTree) {
-    HeartAdjustedPostOrderBase::compute(
-        CfgInterfaceImpl<CfgTraits>(
-            CfgTraits::getBlockParent(domTree.getRoot())),
-        convergenceInfo, convergenceInfo.getCycleInfo(), domTree);
+    ICycleInfoSsaContextImpl<SsaContext> iface(domTree.getRoot());
+    HeartAdjustedPostOrderBase::compute(iface, convergenceInfo,
+                                        convergenceInfo.getCycleInfo(),
+                                        domTree);
   }
 
   auto begin() const {
-    return CfgTraits::unwrapIterator(HeartAdjustedPostOrderBase::begin());
+    return Wrapper::unwrapIterator(HeartAdjustedPostOrderBase::begin());
   }
   auto end() const {
-    return CfgTraits::unwrapIterator(HeartAdjustedPostOrderBase::end());
+    return Wrapper::unwrapIterator(HeartAdjustedPostOrderBase::end());
   }
 
   BlockRef operator[](size_t idx) const {
-    return CfgTraits::unwrapRef(HeartAdjustedPostOrderBase::operator[](idx));
+    return Wrapper::unwrapRef(HeartAdjustedPostOrderBase::operator[](idx));
   }
 };
+
+class IUniformInfoSsaContext : public IConvergenceInfoSsaContext {
+public:
+  virtual void appendBlocksOfFunction(
+      BlockHandle anyBlockOfFunction,
+      SmallVectorImpl<BlockHandle> &blocks) const = 0;
+
+  virtual void appendBlockDefs(
+      BlockHandle block, SmallVectorImpl<SsaValueHandle> &defs) const = 0;
+};
+
+template <typename SsaContextT> class IUniformInfoSsaContextMixin {
+  // void appendBlockDefs(BlockRef block,
+  //                      SmallVectorImpl<SsaValueHandle> &defs) const;
+};
+
+template <typename BaseT>
+class IUniformInfoSsaContextImplChain
+    : public BaseT, IUniformInfoSsaContextMixin<typename BaseT::SsaContext> {
+public:
+  using SsaContext = typename BaseT::SsaContext;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
+private:
+  using Mixin = IUniformInfoSsaContextMixin<SsaContext>;
+
+public:
+  IUniformInfoSsaContextImplChain(BlockRef block) : BaseT(block) {}
+
+  void appendBlocksOfFunction(
+      BlockHandle anyBlockOfFunction,
+      SmallVectorImpl<BlockHandle> &blocks) const final {
+    for (auto &block : *Wrapper::unwrapRef(anyBlockOfFunction)->getParent())
+      blocks.push_back(Wrapper::wrapRef(&block));
+  }
+
+  void appendBlockDefs(BlockHandle block,
+                       SmallVectorImpl<SsaValueHandle> &defs) const final {
+    Mixin::appendBlockDefs(Wrapper::unwrapRef(block), defs);
+  }
+};
+
+template <typename SsaContext, typename Base = IUniformInfoSsaContext>
+using IUniformInfoSsaContextImpl =
+    IUniformInfoSsaContextImplChain<
+        IConvergenceInfoSsaContextImpl<SsaContext, Base>>;
+
+template <typename RefTypeT>
+using IUniformInfoSsaContextFor =
+    IUniformInfoSsaContextImpl<SsaContextFor<RefTypeT>>;
 
 /// \brief Type-erased conservative convergence-aware uniform analysis results.
 ///
 /// Computed by \ref GenericUniformAnalysis.
 class GenericUniformInfoBase {
   friend class GenericUniformAnalysisBase;
-  template<typename AnalysisT, typename CfgTraitsT>
+  template<typename AnalysisT, typename SsaContextT>
   friend class GenericUniformAnalysis;
 
 protected:
-  CfgParentRef m_parent;
-  DenseSet<CfgValueRef> m_divergentValues;
-  DenseSet<CfgBlockRef> m_divergentBlocks; ///< Blocks with divergent terminators
+  BlockHandle m_anyBlock; ///< Handle to any block, allows recovering an SsaContext
+  DenseSet<SsaValueHandle> m_divergentValues;
+  DenseSet<BlockHandle> m_divergentBlocks; ///< Blocks with divergent terminators
   DenseSet<const GenericCycleBase *> m_divergentCycleExits;
 
 public:
   void clear();
 
   /// Whether \p value is divergent at its definition.
-  bool isDivergentAtDef(CfgValueRef value) const;
+  bool isDivergentAtDef(SsaValueHandle value) const;
 
   bool hasDivergentExit(const GenericCycleBase *cycle) const;
-  bool hasDivergentTerminator(CfgBlockRef block) const;
+  bool hasDivergentTerminator(BlockHandle block) const;
 
   /// TODO
-//  bool isDivergentAtUse(void *value, void *useBlock) const;
+//  bool isDivergentAtUse(SsaValueHandle value, BlockHandle useBlock) const;
 
 protected:
-  void print(const CfgPrinter &printer, raw_ostream &out) const;
+  void print(const IUniformInfoSsaContext &iface, raw_ostream &out) const;
 };
 
 /// \brief Conservative convergence-aware uniform analysis results.
-template<typename CfgTraitsT>
+template<typename SsaContextT>
 class GenericUniformInfo : public GenericUniformInfoBase {
 public:
-  using CfgTraits = CfgTraitsT;
-  using BlockRef = typename CfgTraits::BlockRef;
-  using ValueRef = typename CfgTraits::ValueRef;
+  using SsaContext = SsaContextT;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
+  using ValueRef = typename SsaContext::ValueRef;
 
   bool isDivergentAtDef(ValueRef value) const {
-    return GenericUniformInfoBase::isDivergentAtDef(CfgTraits::wrapRef(value));
+    return GenericUniformInfoBase::isDivergentAtDef(Wrapper::wrapRef(value));
   }
   bool hasDivergentExit(const GenericCycleBase *cycle) const {
     return GenericUniformInfoBase::hasDivergentExit(cycle);
   }
   bool hasDivergentTerminator(BlockRef block) const {
-    return GenericUniformInfoBase::hasDivergentTerminator(CfgTraits::wrapRef(block));
+    return GenericUniformInfoBase::hasDivergentTerminator(Wrapper::wrapRef(block));
   }
 
   void print(raw_ostream &out) const {
-    if (!m_parent)
+    if (!m_anyBlock)
       return;
 
-    GenericUniformInfoBase::print(
-        CfgPrinterImpl<CfgTraits>(
-            CfgInterfaceImpl<CfgTraits>(CfgTraits::unwrapRef(m_parent))),
-        out);
+    IUniformInfoSsaContextImpl<SsaContext>
+        iface(Wrapper::unwrapRef(m_anyBlock));
+    GenericUniformInfoBase::print(iface, out);
   }
 };
 

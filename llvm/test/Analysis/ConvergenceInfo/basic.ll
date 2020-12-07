@@ -68,6 +68,41 @@ end:
 
 ;
 ;     |
+;  /->A        %a = anchor
+;  |  |
+;  |  B]       %b = heart
+;  |  |
+;  ^-<C
+;     |
+;
+define void @deep_heart() {
+; CHECK-LABEL: ConvergenceInfo for function: deep_heart
+; CHECK: Convergence-adjusted cycles:
+; CHECK:     depth=1: entries(A) C B
+; CHECK: Convergent operations:
+; CHECK:   (anchor) entry:   %anchor = call token @llvm.experimental.convergence.anchor()
+; CHECK:     (heart) B (cycle=depth=1: entries(A) C B):   %b = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token %anchor) ]
+
+entry:
+  %anchor = call token @llvm.experimental.convergence.anchor()
+  br label %A
+
+A:
+  br label %B
+
+B:
+  %b = call token @llvm.experimental.convergence.loop() [ "convergencectrl"(token %anchor) ]
+  br i1 undef, label %B, label %C
+
+C:
+  br i1 undef, label %A, label %end
+
+end:
+  ret void
+}
+
+;
+;     |
 ;     A]       %a = anchor
 ;     |
 ;     B

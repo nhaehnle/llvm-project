@@ -32,6 +32,16 @@ namespace llvm {
 /// \brief Type-erased base class for uniform analysis.
 class GenericUniformAnalysisBase {
 private:
+  /// Virtual value used during sync-SSA. Values can be:
+  ///  - undef
+  ///  - "initial" values, which are generated on the edges from the source
+  ///    of divergence (divergent terminator or cycle with divergent exit)
+  ///  - phi node values
+  ///  - a unique "special" value that is used for cycle analysis (see
+  ///    \ref SyncSsaCycleState) and to indicate that a block is (part of) a
+  ///    source of control divergence.
+  ///
+  /// Default construction produces an "undef" value.
   class SyncSsaValue {
   public:
     static SyncSsaValue makePhi(unsigned phiIndex) {
@@ -80,60 +90,80 @@ private:
     int value = -1;
   };
 
+  /// Sync-SSA values of virtual nodes corresponding to cycles during sync-SSA
+  /// construction:
+  ///
+  ///  - latch collects values propagated on back edges to the (effective)
+  ///    cycle heart
+  ///  - exit collects values propagated on exiting edges
+  ///
+  /// The "special" sync-SSA value is used to indicate that multiple different
+  /// sync-SSA values were encountered.
+  struct SyncSsaCycleState {
+    const GenericCycleBase *cycle;
+    SyncSsaValue latch;
+    SyncSsaValue exit;
+
+    // Cache of the heart's forward incoming value.
+    SyncSsaValue heartForwardIncoming;
+
+    explicit SyncSsaCycleState(const GenericCycleBase *cycle) : cycle(cycle) {}
+  };
+
   struct CycleSync {
     bool divergentReentrance = false;
     bool divergentExit = false;
   };
 
-  const CfgInterface &m_iface;
-  std::unique_ptr<CfgPrinter> m_printer;
+  const IUniformInfoSsaContext &m_iface;
   GenericUniformInfoBase &m_uniformInfo;
   const GenericConvergenceInfoBase &m_convergenceInfo;
   const GenericDominatorTreeBase &m_domTree;
   const GenericCycleInfoBase &m_cycleInfo;
 
   HeartAdjustedPostOrderBase m_hapo;
-  DenseMap<CfgBlockRef, unsigned> m_hapoIndex;
+  DenseMap<BlockHandle, unsigned> m_hapoIndex;
 
   /// Potentially large structures used during sync SSA propagation.
   struct {
     /// Indexed by hapo-index.
     std::vector<SyncSsaValue> values;
     BitVector pending;
-    unsigned numPending = 0;
 
-    /// Collect unique value tags on cycle backwards edges. If a cycle is not in
-    /// the map, it means no value was propagated along a backward edge for
-    /// the cycle (yet). If a cycle is mapped to "special", it means that there
-    /// are multiple value tags.
-    DenseMap<const GenericCycleBase *, SyncSsaValue> cycleHeaderBackwardValues;
+    /// All pending blocks are in the range [hapoLower, hapoUpper).
+    unsigned hapoLower = ~0u;
+    unsigned hapoUpper = 0;
 
-    /// Analogous to cycleHeaderBackwardValues, for value tags on edges exiting
-    /// a cycle.
-    DenseMap<const GenericCycleBase *, SyncSsaValue> cycleExitingValues;
+    /// Stack of cycles that are currently relevant for the sync-SSA
+    /// propagation. The innermost cycle is at the top.
+    ///
+    /// The bottom-most cycle is a cycle that contains the source of
+    /// divergence, all other cycles are cycles that were entered during
+    /// propagation.
+    SmallVector<SyncSsaCycleState, 4> cycles;
   } m_syncSsa;
 
   struct CycleReentranceInfo {
     /// Blocks that are reachable from the header without going through the
     /// heart (includes blocks in child cycles).
-    DenseSet<CfgBlockRef> reachableWithoutHeart;
+    DenseSet<BlockHandle> reachableWithoutHeart;
 
     /// Maximal strongly connected component including the header after
     /// removing the heart (includes blocks in child cycles).
-    DenseSet<CfgBlockRef> reentrantCycle;
+    DenseSet<BlockHandle> reentrantCycle;
   };
 
   DenseMap<const GenericCycleBase *, CycleSync> m_cycleSync;
   DenseMap<const GenericCycleBase *, CycleReentranceInfo> m_reentrantCycleBlocks;
-  DenseSet<CfgBlockRef> m_divergentReentranceBlocks;
+  DenseSet<BlockHandle> m_divergentReentranceBlocks;
 
-  SmallVector<CfgValueRef, 8> m_valueWorklist; // divergent values to propagate
-  SmallVector<CfgBlockRef, 8> m_blockWorklist; // blocks with divergent terminators to propagate
+  SmallVector<SsaValueHandle, 8> m_valueWorklist; // divergent values to propagate
+  SmallVector<BlockHandle, 8> m_blockWorklist; // blocks with divergent terminators to propagate
   SmallVector<const GenericCycleBase *, 4> m_cycleWorklist; // cycles with divergent exit to propagate
   bool m_inPropagate = false;
 
 public:
-  GenericUniformAnalysisBase(const CfgInterface &iface,
+  GenericUniformAnalysisBase(const IUniformInfoSsaContext &iface,
                              GenericUniformInfoBase &uniformInfo,
                              const GenericConvergenceInfoBase &convergenceInfo,
                              const GenericCycleInfoBase &cycleInfo,
@@ -152,19 +182,19 @@ public:
 protected:
   /// \brief Value/block pair representing a single phi input.
   struct PhiInput {
-    CfgValueRef value;
-    CfgBlockRef predBlock;
+    SsaValueHandle value;
+    BlockHandle predBlock;
 
-    PhiInput(CfgValueRef value, CfgBlockRef predBlock)
+    PhiInput(SsaValueHandle value, BlockHandle predBlock)
       : value(value), predBlock(predBlock) {}
   };
 
   /// \brief Representation of a phi node.
   struct TypeErasedPhi {
-    CfgValueRef value; ///< The value produced by the phi
+    SsaValueHandle value; ///< The value produced by the phi
     SmallVector<PhiInput, 4> inputs;
 
-    TypeErasedPhi(CfgValueRef value) : value(value) {}
+    TypeErasedPhi(SsaValueHandle value) : value(value) {}
   };
 
   /// Call handleDivergentValue for values that may become divergent due to
@@ -175,39 +205,46 @@ protected:
   ///
   /// If \p cycle is non-null, only propagate to uses outside of this cycle.
   virtual void typeErasedPropagateUses(
-      CfgValueRef value, const GenericCycleBase *outsideCycle) = 0;
+      SsaValueHandle value, const GenericCycleBase *outsideCycle) = 0;
 
   /// Append all phi nodes of \p block that are still believed to be uniform.
   /// Inputs that are undefined should be omitted.
   virtual void typeErasedAppendUniformPhis(
-      CfgBlockRef block, SmallVectorImpl<TypeErasedPhi> &phis) = 0;
+      BlockHandle block, SmallVectorImpl<TypeErasedPhi> &phis) = 0;
 
   /// Append all values defined in \p block to \p valueList that are still
   /// believed to be uniform at their definition.
   virtual void typeErasedAppendDefinedUniformValues(
-      CfgBlockRef block, SmallVectorImpl<CfgValueRef> &valueList) = 0;
+      BlockHandle block, SmallVectorImpl<SsaValueHandle> &valueList) = 0;
 
   /// Called when a value was discovered to be divergent.
-  void handleDivergentValue(CfgValueRef value);
+  void handleDivergentValue(SsaValueHandle value);
 
   /// Called when the terminator of \p divergentBlock was discovered to have a
   /// divergent target.
-  void handleDivergentTerminator(CfgBlockRef divergentBlock);
+  void handleDivergentTerminator(BlockHandle divergentBlock);
 
 private:
-  CfgPrinter &printer();
   void syncSsaInit();
-  void syncSsaRun(unsigned hapoBound);
-  void syncSsaPropagateEdge(CfgBlockRef block, unsigned blockHapoIndex,
-                            const GenericCycleBase *blockCycle,
-                            CfgBlockRef succ, unsigned succHapoIndex,
+  void syncSsaRun();
+  void syncSsaTestCycleDivergence(const SyncSsaCycleState &cycleState);
+  void syncSsaPropagateEdge(unsigned fromHapoIndex,
+                            const GenericCycleBase *fromCycle,
+                            BlockHandle succ, unsigned succHapoIndex,
                             SyncSsaValue value);
-  void syncSsaAnalyzePhis(unsigned blockHapoIndex, bool forwardEdges);
-  void analyzeDivergentTerminator(CfgBlockRef divergentBlock);
+
+  enum class AnalyzePhiEdges {
+    Forward = 1 << 0,
+    Backward = 1 << 1,
+    Both = Forward | Backward,
+  };
+
+  void syncSsaAnalyzePhis(unsigned blockHapoIndex, AnalyzePhiEdges edges);
+  void analyzeDivergentTerminator(BlockHandle divergentBlock);
   void analyzeDivergentCycleExit(const GenericCycleBase *cycle);
-  void analyzeDivergentReentrantCycles(CfgBlockRef divergentBlock);
+  void analyzeDivergentReentrantCycles(BlockHandle divergentBlock);
   const CycleReentranceInfo &getCycleReentranceInfo(const GenericCycleBase *cycle);
-  bool inReentrantCycle(CfgBlockRef block, const GenericCycleBase *cycle);
+  bool inReentrantCycle(BlockHandle block, const GenericCycleBase *cycle);
 
   void propagate();
 };
@@ -216,15 +253,16 @@ private:
 ///
 /// Derive from this class using CRTP to implement the CFG- or target-specific
 /// bits.
-template<typename AnalysisT, typename CfgTraitsT>
+template<typename AnalysisT, typename SsaContextT>
 class GenericUniformAnalysis : public GenericUniformAnalysisBase {
 public:
-  using CfgTraits = CfgTraitsT;
-  using BlockRef = typename CfgTraits::BlockRef;
-  using ValueRef = typename CfgTraits::ValueRef;
-  using Cycle = GenericCycle<CfgTraits>;
-  using ConvergenceInfo = GenericConvergenceInfo<CfgTraits>;
-  using UniformInfo = GenericUniformInfo<CfgTraits>;
+  using SsaContext = SsaContextT;
+  using Wrapper = typename SsaContext::Wrapper;
+  using BlockRef = typename SsaContext::BlockRef;
+  using ValueRef = typename SsaContext::ValueRef;
+  using Cycle = GenericCycle<SsaContext>;
+  using ConvergenceInfo = GenericConvergenceInfo<SsaContext>;
+  using UniformInfo = GenericUniformInfo<SsaContext>;
   using DomTree = DominatorTreeBase<typename std::pointer_traits<BlockRef>::element_type, false>;
 
   GenericUniformAnalysis(UniformInfo &uniformInfo,
@@ -232,9 +270,8 @@ public:
                          const DomTree &domTree)
       : GenericUniformAnalysisBase(m_ifaceImpl, uniformInfo, convergenceInfo,
                                    convergenceInfo.getCycleInfo(), domTree),
-        m_ifaceImpl(CfgTraits::getBlockParent(domTree.getRoot())) {
-    uniformInfo.m_parent =
-        CfgTraits::wrapRef(CfgTraits::getBlockParent(domTree.getRoot()));
+        m_ifaceImpl(domTree.getRoot()) {
+    uniformInfo.m_anyBlock = Wrapper::wrapRef(domTree.getRoot());
   }
 
   UniformInfo &getUniformInfo() {
@@ -244,7 +281,7 @@ public:
     return static_cast<const ConvergenceInfo &>(
                GenericUniformAnalysisBase::getConvergenceInfo());
   }
-  const GenericCycleInfo<CfgTraits> &getCycleInfo() const {
+  const GenericCycleInfo<SsaContext> &getCycleInfo() const {
     return getConvergenceInfo().getCycleInfo();
   }
   const DomTree &getDomTree() const {
@@ -264,14 +301,14 @@ public:
   //     Semantics as per typeErasedAppendDefinedUniformValues.
 
   void handleDivergentValue(ValueRef value) {
-    GenericUniformAnalysisBase::handleDivergentValue(CfgTraits::wrapRef(value));
+    GenericUniformAnalysisBase::handleDivergentValue(Wrapper::wrapRef(value));
   }
   void handleDivergentTerminator(BlockRef block) {
-    GenericUniformAnalysisBase::handleDivergentTerminator(CfgTraits::wrapRef(block));
+    GenericUniformAnalysisBase::handleDivergentTerminator(Wrapper::wrapRef(block));
   }
 
 protected:
-  CfgInterfaceImpl<CfgTraits> m_ifaceImpl;
+  IUniformInfoSsaContextImpl<SsaContext> m_ifaceImpl;
 
   /// \brief Thin, type-safe wrapper around our generic phi representation.
   class PhiRef {
@@ -285,12 +322,12 @@ protected:
       : m_phis(phis), m_index(index) {}
 
     /// Get the value produced by the phi node.
-    ValueRef getPhi() const {return CfgTraits::unwrapRef(m_phis[m_index].value);}
+    ValueRef getPhi() const {return Wrapper::unwrapRef(m_phis[m_index].value);}
 
     /// Add an input to the phi.
     void addInput(ValueRef input, BlockRef predBlock) {
-      m_phis[m_index].inputs.emplace_back(CfgTraits::wrapRef(input),
-                                          CfgTraits::wrapRef(predBlock));
+      m_phis[m_index].inputs.emplace_back(Wrapper::wrapRef(input),
+                                          Wrapper::wrapRef(predBlock));
     }
   };
 
@@ -304,38 +341,38 @@ protected:
     /// Add a new phi node, producing the given value, and return a reference
     /// to it.
     PhiRef addPhi(ValueRef phi) {
-      m_phis.emplace_back(CfgTraits::wrapRef(phi));
+      m_phis.emplace_back(Wrapper::wrapRef(phi));
       return PhiRef(m_phis, m_phis.size() - 1);
     }
   };
 
   /// \brief Thin, type-safe wrapper around a vector of values.
   class ValueListRef {
-    SmallVectorImpl<CfgValueRef> &m_values;
+    SmallVectorImpl<SsaValueHandle> &m_values;
 
   public:
-    explicit ValueListRef(SmallVectorImpl<CfgValueRef> &values) : m_values(values) {}
+    explicit ValueListRef(SmallVectorImpl<SsaValueHandle> &values) : m_values(values) {}
 
     /// Add a new value to the list.
     void push_back(ValueRef value) {
-      m_values.push_back(CfgTraits::wrapRef(value));
+      m_values.push_back(Wrapper::wrapRef(value));
     }
   };
 
-  void typeErasedPropagateUses(CfgValueRef value,
+  void typeErasedPropagateUses(SsaValueHandle value,
                                const GenericCycleBase *outsideCycle) final {
     static_cast<AnalysisT *>(this)->propagateUses(
-        CfgTraits::unwrapRef(value), static_cast<const Cycle *>(outsideCycle));
+        Wrapper::unwrapRef(value), static_cast<const Cycle *>(outsideCycle));
   }
-  void typeErasedAppendUniformPhis(CfgBlockRef block,
+  void typeErasedAppendUniformPhis(BlockHandle block,
                                    SmallVectorImpl<TypeErasedPhi> &phis) final {
     PhiListRef list(phis);
-    static_cast<AnalysisT *>(this)->appendUniformPhis(CfgTraits::unwrapRef(block), list);
+    static_cast<AnalysisT *>(this)->appendUniformPhis(Wrapper::unwrapRef(block), list);
   }
-  void typeErasedAppendDefinedUniformValues(CfgBlockRef block,
-                                            SmallVectorImpl<CfgValueRef> &valueList) final {
+  void typeErasedAppendDefinedUniformValues(BlockHandle block,
+                                            SmallVectorImpl<SsaValueHandle> &valueList) final {
     static_cast<AnalysisT *>(this)->appendDefinedUniformValues(
-        CfgTraits::unwrapRef(block), ValueListRef(valueList));
+        Wrapper::unwrapRef(block), ValueListRef(valueList));
   }
 };
 

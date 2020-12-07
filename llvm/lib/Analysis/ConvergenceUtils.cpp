@@ -23,9 +23,10 @@ namespace {
 
 /// \brief Analysis for computing convergence info on LLVM IR.
 class ConvergenceAnalysis
-    : public GenericConvergenceAnalysis<ConvergenceAnalysis, IrCfgTraits> {
+    : public GenericConvergenceAnalysis<ConvergenceAnalysis, IrSsaContext> {
 public:
-  using Base = GenericConvergenceAnalysis<ConvergenceAnalysis, IrCfgTraits>;
+  using Wrapper = IrSsaContext::Wrapper;
+  using Base = GenericConvergenceAnalysis<ConvergenceAnalysis, IrSsaContext>;
 
   ConvergenceAnalysis(ConvergenceInfo &convergenceInfo,
                       const DominatorTree &domTree)
@@ -67,8 +68,8 @@ public:
             }
           }
 
-          visitConvergentOperation(parent, kind, CfgTraits::wrapRef(block),
-                                   CfgTraits::wrapRef(&instr));
+          visitConvergentOperation(parent, kind, Wrapper::wrapRef(block),
+                                   Wrapper::wrapRef(&instr));
         }
       }
     }
@@ -141,11 +142,11 @@ ConvergentOperation *ConvergenceInfo::createIntrinsic(
 namespace {
 
 /// \brief Analysis for computing convergence-aware uniform info on LLVM IR.
-class UniformAnalysis : public GenericUniformAnalysis<UniformAnalysis, IrCfgTraits> {
+class UniformAnalysis : public GenericUniformAnalysis<UniformAnalysis, IrSsaContext> {
   const TargetTransformInfo &m_targetTransformInfo;
 
 public:
-  using Base = GenericUniformAnalysis<UniformAnalysis, IrCfgTraits>;
+  using Base = GenericUniformAnalysis<UniformAnalysis, IrSsaContext>;
 
   UniformAnalysis(UniformInfo &uniformInfo,
                   const ConvergenceInfo &convergenceInfo,
