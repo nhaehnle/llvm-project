@@ -12,11 +12,17 @@
 /// what is possible from templates via context-free functions like
 /// \ref llvm::GraphTraits<T>::child_begin()/child_end().
 ///
+/// Additionally, this file defines the \ref ISsaContext interface class and
+/// its implementation that provides a superset of the SsaContext functionality
+/// to code that wants to abstract over different IRs without being written as
+/// templates.
+///
 //===----------------------------------------------------------------------===//
 
 #ifndef LLVM_SUPPORT_SSACONTEXT_H
 #define LLVM_SUPPORT_SSACONTEXT_H
 
+#include "llvm/Support/Handle.h"
 #include "llvm/Support/Printable.h"
 
 namespace llvm {
@@ -72,6 +78,60 @@ template <typename RefType> struct SsaContextForImpl {
 ///
 template <typename RefType>
 using SsaContextFor = typename SsaContextForImpl<RefType>::Context;
+
+/// \brief Interface class for type-erased wrapping of SsaContext
+///
+/// Do not provide manual implementations of this class. Instead, specialize
+/// \ref SsaContextForImpl and rely on \ref ISsaContextImpl.
+class ISsaContext {
+  virtual void anchor();
+
+public:
+  virtual BlockHandle getDefBlock(SsaValueHandle value) const = 0;
+
+  virtual Printable printableName(BlockHandle ref) const = 0;
+  virtual Printable printable(InstructionHandle ref) const = 0;
+  virtual Printable printable(SsaValueHandle ref) const = 0;
+};
+
+/// \brief Implementation of \ref ISsaContext for a context-type
+///
+/// Analysis classes that desire a broader interface can have that interface
+/// inherit from ISsaContext, with implementations instantiating this template
+/// with a custom Base parameter that refers to the broader interface.
+template <typename SsaContextT, typename Base = ISsaContext>
+class ISsaContextImpl : public Base, SsaContextT {
+public:
+  using SsaContext = SsaContextT;
+  using BlockRef = typename SsaContext::BlockRef;
+  using InstructionRef = typename SsaContext::InstructionRef;
+  using ValueRef = typename SsaContext::ValueRef;
+  using Wrapper = typename SsaContext::Wrapper;
+
+  ISsaContextImpl(BlockRef ref) : SsaContext(ref) {}
+  ISsaContextImpl(InstructionRef ref) : SsaContext(ref) {}
+
+  const SsaContext &getSsaContext() const { return *this; }
+
+  BlockHandle getDefBlock(SsaValueHandle value) const final {
+    return Wrapper::wrapRef(SsaContext::getDefBlock(Wrapper::unwrapRef(value)));
+  }
+
+  Printable printableName(BlockHandle ref) const final {
+    return SsaContext::printableName(Wrapper::unwrapRef(ref));
+  }
+
+  Printable printable(InstructionHandle ref) const final {
+    return SsaContext::printable(Wrapper::unwrapRef(ref));
+  }
+
+  Printable printable(SsaValueHandle ref) const final {
+    return SsaContext::printable(Wrapper::unwrapRef(ref));
+  }
+};
+
+template <typename RefTypeT>
+using ISsaContextFor = ISsaContextImpl<SsaContextFor<RefTypeT>>;
 
 } // namespace llvm
 
