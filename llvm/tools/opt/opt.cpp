@@ -136,6 +136,9 @@ StripDebug("strip-debug",
            cl::desc("Strip debugger symbol info from translation unit"));
 
 static cl::opt<bool>
+PrintIRStats("print-ir-stats");
+
+static cl::opt<bool>
     StripNamedMetadata("strip-named-metadata",
                        cl::desc("Strip module-level named metadata"));
 
@@ -528,6 +531,39 @@ static bool CodegenPassSpecifiedInPassList() {
   return false;
 }
 
+static void DoPrintIRStats(Module &module) {
+  size_t numFunctions = 0;
+  size_t numBasicBlocks = 0;
+  size_t numPredecessors = 0;
+  size_t numSuccessors = 0;
+  size_t numInstructions = 0;
+  size_t numOperands = 0;
+
+  for (Function &fn : module.functions()) {
+    numFunctions++;
+
+    for (BasicBlock &bb : fn) {
+      numBasicBlocks++;
+
+//      numPredecessors += llvm::pred_size(&bb);
+      numSuccessors += llvm::succ_size(&bb);
+
+      for (Instruction &instr : bb) {
+        numInstructions++;
+
+        numOperands += instr.getNumOperands();
+      }
+    }
+  }
+
+  errs() << "numFunctions = " << numFunctions
+         << "\nnumBasicBlocks = " << numBasicBlocks
+         << "\nnumPredecessors = " << numPredecessors
+         << "\nnumSuccessors = " << numSuccessors
+         << "\nnumInstructions = " << numInstructions
+         << "\nnumOperands = " << numOperands << '\n';
+}
+
 //===----------------------------------------------------------------------===//
 // main for opt
 //
@@ -630,6 +666,11 @@ int main(int argc, char **argv) {
   if (!M) {
     Err.print(argv[0], errs());
     return 1;
+  }
+
+  if (PrintIRStats) {
+    DoPrintIRStats(*M);
+    return 0;
   }
 
   // Strip debug info before running the verifier.
