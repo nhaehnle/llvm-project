@@ -585,8 +585,10 @@ bool RegionInfoBase<Tr>::isRegion(BlockT *entry, BlockT *exit) const {
   // Exit is the header of a loop that contains the entry. In this case,
   // the dominance frontier must only contain the exit.
   if (!DT->dominates(entry, exit)) {
-    for (BlockT *successor : *entrySuccs) {
-      if (successor != exit && successor != entry)
+    for (typename DST::iterator SI = entrySuccs->begin(),
+                                SE = entrySuccs->end();
+         SI != SE; ++SI) {
+      if (*SI != exit && *SI != entry)
         return false;
     }
 
