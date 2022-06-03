@@ -23,7 +23,6 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm-c/Error.h"
 

@@ -38,7 +38,6 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/PrettyStackTrace.h"
@@ -1189,7 +1188,6 @@ int main(int argc, const char *argv[]) {
   StringRef ToolName = argv[0];
   sys::PrintStackTraceOnErrorSignal(ToolName);
   PrettyStackTraceProgram X(argc, argv);
-  llvm_shutdown_obj Y;
 
   cl::ParseCommandLineOptions(argc, argv, "LLDB Testing Utility\n");
 

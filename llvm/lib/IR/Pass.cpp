@@ -227,8 +227,8 @@ PassNameParser::PassNameParser(cl::Option &O)
 }
 
 // This only gets called during static destruction, in which case the
-// PassRegistry will have already been destroyed by llvm_shutdown().  So
-// attempting to remove the registration listener is an error.
+// PassRegistry may have already been destroyed. So attempting to remove the
+// registration listener is an error (and also unnecessary).
 PassNameParser::~PassNameParser() = default;
 
 //===----------------------------------------------------------------------===//

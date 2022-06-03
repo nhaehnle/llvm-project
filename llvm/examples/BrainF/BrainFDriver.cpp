@@ -41,7 +41,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -179,8 +178,6 @@ int main(int argc, char **argv) {
   //Clean up
   if (out != &outs())
     delete out;
-
-  llvm_shutdown();
 
   return 0;
 }

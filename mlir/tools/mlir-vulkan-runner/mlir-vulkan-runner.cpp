@@ -65,7 +65,6 @@ static LogicalResult runMLIRPasses(ModuleOp module) {
 }
 
 int main(int argc, char **argv) {
-  llvm::llvm_shutdown_obj x;
   registerPassManagerCLOptions();
 
   llvm::InitLLVM y(argc, argv);

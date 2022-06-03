@@ -20,7 +20,7 @@ DynamicLibrary::HandleSet::~HandleSet() {
   if (Process)
     ::dlclose(Process);
 
-  // llvm_shutdown called, Return to default
+  // Global destructors run, Return to default
   DynamicLibrary::SearchOrder = DynamicLibrary::SO_Linker;
 }
 

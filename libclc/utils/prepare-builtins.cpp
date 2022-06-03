@@ -10,7 +10,6 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
@@ -31,7 +30,6 @@ OutputFilename("o", cl::desc("Output filename"),
 
 int main(int argc, char **argv) {
   LLVMContext Context;
-  llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 
   cl::ParseCommandLineOptions(argc, argv, "libclc builtin preparation tool\n");
 

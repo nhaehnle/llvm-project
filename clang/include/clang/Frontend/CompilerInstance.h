@@ -205,16 +205,10 @@ public:
   ///  - Clients should have initialized any LLVM target features that may be
   ///    required.
   ///
-  ///  - Clients should eventually call llvm_shutdown() upon the completion of
-  ///    this routine to ensure that any managed objects are properly destroyed.
-  ///
   /// Note that this routine may write output to 'stderr'.
   ///
   /// \param Act - The action to execute.
   /// \return - True on success.
-  //
-  // FIXME: Eliminate the llvm_shutdown requirement, that should either be part
-  // of the context or else not CompilerInstance specific.
   bool ExecuteAction(FrontendAction &Act);
 
   /// Load the list of plugins requested in the \c FrontendOptions.

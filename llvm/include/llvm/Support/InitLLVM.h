@@ -29,8 +29,6 @@
 //     encoding, so that you can assume that command line arguments are
 //     always encoded in UTF-8 on any platform.
 //
-// InitLLVM calls llvm_shutdown() on destruction, which cleans up
-// ManagedStatic objects.
 namespace llvm {
 class InitLLVM {
 public:
@@ -39,8 +37,6 @@ public:
   InitLLVM(int &Argc, char **&Argv, bool InstallPipeSignalExitHandler = true)
       : InitLLVM(Argc, const_cast<const char **&>(Argv),
                  InstallPipeSignalExitHandler) {}
-
-  ~InitLLVM();
 
 private:
   BumpPtrAllocator Alloc;

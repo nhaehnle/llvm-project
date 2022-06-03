@@ -201,7 +201,6 @@ struct LLVMInitRAII {
     llvm::InitializeNativeTarget();
     llvm::InitializeNativeTargetAsmPrinter();
   }
-  ~LLVMInitRAII() { llvm::llvm_shutdown(); }
 } LLVMInit;
 
 #ifdef CLANG_INTERPRETER_NO_SUPPORT_EXEC

@@ -53,8 +53,8 @@ public:
   ~PassRegistry();
 
   /// getPassRegistry - Access the global registry object, which is
-  /// automatically initialized at application launch and destroyed by
-  /// llvm_shutdown.
+  /// automatically initialized at application launch and destroyed when
+  /// global destructors are run.
   static PassRegistry *getPassRegistry();
 
   /// getPassInfo - Look up a pass' corresponding PassInfo, indexed by the pass'

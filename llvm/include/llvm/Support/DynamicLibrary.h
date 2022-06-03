@@ -57,7 +57,8 @@ namespace sys {
     void *getAddressOfSymbol(const char *symbolName);
 
     /// This function permanently loads the dynamic library at the given path.
-    /// The library will only be unloaded when llvm_shutdown() is called.
+    /// The library will only be unloaded when LLVM's global destructors are
+    /// run.
     /// This returns a valid DynamicLibrary instance on success and an invalid
     /// instance on failure (see isValid()). \p *errMsg will only be modified
     /// if the library fails to load.

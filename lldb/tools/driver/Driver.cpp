@@ -780,8 +780,7 @@ int main(int argc, char const *argv[]) {
   std::setlocale(LC_ALL, "");
   std::setlocale(LC_CTYPE, "");
 
-  // Setup LLVM signal handlers and make sure we call llvm_shutdown() on
-  // destruction.
+  // Setup LLVM signal handlers.
   llvm::InitLLVM IL(argc, argv, /*InstallPipeSignalExitHandler=*/false);
 
   // Parse arguments.

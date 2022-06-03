@@ -27,7 +27,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/TargetSelect.h"
@@ -1139,7 +1138,6 @@ static ld_plugin_status allSymbolsReadHook() {
     return LDPS_OK;
 
   if (options::thinlto_index_only) {
-    llvm_shutdown();
     cleanup_hook();
     exit(0);
   }
@@ -1157,7 +1155,6 @@ static ld_plugin_status allSymbolsReadHook() {
 
 static ld_plugin_status all_symbols_read_hook(void) {
   ld_plugin_status Ret = allSymbolsReadHook();
-  llvm_shutdown();
 
   if (options::TheOutputType == options::OT_BC_ONLY ||
       options::TheOutputType == options::OT_ASM_ONLY ||

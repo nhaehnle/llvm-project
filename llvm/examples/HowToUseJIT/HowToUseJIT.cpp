@@ -48,7 +48,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -135,6 +134,5 @@ int main() {
   // Import result of execution:
   outs() << "Result: " << gv.IntVal << "\n";
   delete EE;
-  llvm_shutdown();
   return 0;
 }

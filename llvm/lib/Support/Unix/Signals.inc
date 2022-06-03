@@ -13,13 +13,7 @@
 //
 // This file is extremely careful to only do signal-safe things while in a
 // signal handler. In particular, memory allocation and acquiring a mutex
-// while in a signal handler should never occur. ManagedStatic isn't usable from
-// a signal handler for 2 reasons:
-//
-//  1. Creating a new one allocates.
-//  2. The signal handler could fire while llvm_shutdown is being processed, in
-//     which case the ManagedStatic is in an unknown state because it could
-//     already have been destroyed, or be in the process of being destroyed.
+// while in a signal handler should never occur.
 //
 // Modifying the behavior of the signal handlers (such as registering new ones)
 // can acquire a mutex, but all this guarantees is that the signal handler
@@ -191,8 +185,9 @@ public:
 static std::atomic<FileToRemoveList *> FilesToRemove = ATOMIC_VAR_INIT(nullptr);
 
 /// Clean up the list in a signal-friendly manner.
-/// Recall that signals can fire during llvm_shutdown. If this occurs we should
-/// either clean something up or nothing at all, but we shouldn't crash!
+/// Recall that signals can fire while global destructors are run. If this
+/// occurs we should either clean something up or nothing at all, but we
+/// shouldn't crash!
 struct FilesToRemoveCleanup {
   // Not signal-safe.
   ~FilesToRemoveCleanup() {

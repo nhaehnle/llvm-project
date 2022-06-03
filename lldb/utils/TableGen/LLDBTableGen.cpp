@@ -68,8 +68,6 @@ int main(int argc, char **argv) {
   PrettyStackTraceProgram X(argc, argv);
   cl::ParseCommandLineOptions(argc, argv);
 
-  llvm_shutdown_obj Y;
-
   return TableGenMain(argv[0], &LLDBTableGenMain);
 }
 

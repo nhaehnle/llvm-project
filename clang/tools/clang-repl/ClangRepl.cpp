@@ -18,7 +18,6 @@
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/LineEditor/LineEditor.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h" // llvm_shutdown
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetSelect.h" // llvm::Initialize*
 

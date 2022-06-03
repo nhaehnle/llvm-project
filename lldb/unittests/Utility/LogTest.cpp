@@ -12,7 +12,6 @@
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/StreamString.h"
 #include "llvm/ADT/BitmaskEnum.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Threading.h"
 #include <thread>
 
@@ -72,7 +71,6 @@ struct LogChannelTest : public ::testing::Test {
 
   static void TearDownTestCase() {
     Log::Unregister("chan");
-    llvm::llvm_shutdown();
   }
 };
 
@@ -142,7 +140,6 @@ TEST(LogTest, LLDB_LOG_nullptr) {
 }
 
 TEST(LogTest, Register) {
-  llvm::llvm_shutdown_obj obj;
   Log::Register("chan", test_channel);
   Log::Unregister("chan");
   Log::Register("chan", test_channel);
@@ -150,7 +147,6 @@ TEST(LogTest, Register) {
 }
 
 TEST(LogTest, Unregister) {
-  llvm::llvm_shutdown_obj obj;
   Log::Register("chan", test_channel);
   EXPECT_EQ(nullptr, GetLog(TestChannel::FOO));
   std::string message;

@@ -9,7 +9,6 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/SwapByteOrder.h"
@@ -60,5 +59,3 @@ InitLLVM::InitLLVM(int &Argc, const char **&Argv,
   Argv = Args.data();
 #endif
 }
-
-InitLLVM::~InitLLVM() { llvm_shutdown(); }

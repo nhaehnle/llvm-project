@@ -315,8 +315,6 @@ int main(int argc, char **argv) {
   sys::PrintStackTraceOnErrorSignal(argv[0]);
   PrettyStackTraceProgram X(argc, argv);
 
-  llvm_shutdown_obj Y; // Call llvm_shutdown() on exit.
-
   cl::HideUnrelatedOptions(opts::MergeFdataCategory);
 
   cl::ParseCommandLineOptions(argc, argv,
