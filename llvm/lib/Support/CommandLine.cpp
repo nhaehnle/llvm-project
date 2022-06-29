@@ -2303,8 +2303,8 @@ public:
         outs() << "SUBCOMMAND '" << Sub->getName()
                << "': " << Sub->getDescription() << "\n\n";
       }
-      outs() << "USAGE: " << GlobalParser->ProgramName << " " << Sub->getName()
-             << " [options]";
+      outs() << "USAGE: " << GlobalParser->ProgramName << " "
+             << Sub->getName() << " [options]";
     }
 
     for (auto *Opt : PositionalOpts) {
