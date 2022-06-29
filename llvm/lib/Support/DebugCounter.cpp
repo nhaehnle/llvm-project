@@ -3,6 +3,7 @@
 #include "DebugOptions.h"
 
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FastShutdown.h"
 #include "llvm/Support/Format.h"
 
 using namespace llvm;
@@ -43,6 +44,8 @@ private:
   }
 };
 
+bool DebugCounterInitialized = false;
+
 // All global objects associated to the DebugCounter, including the DebugCounter
 // itself, are owned by a single global instance of the DebugCounterOwner
 // struct. This makes it easier to control the order in which constructors and
@@ -61,10 +64,16 @@ struct DebugCounterOwner {
     // Our destructor uses the debug stream. By referencing it here, we
     // ensure that its destructor runs after our destructor.
     (void)dbgs();
+    DebugCounterInitialized = true;
   }
 
   // Print information when destroyed, iff command line option is specified.
   ~DebugCounterOwner() {
+    printIfEnabled();
+    DebugCounterInitialized = false;
+  }
+
+  void printIfEnabled() {
     if (DC.isCountingEnabled() && PrintDebugCounter)
       DC.print(dbgs());
   }
@@ -76,6 +85,11 @@ struct DebugCounterOwner {
 };
 
 } // anonymous namespace
+
+void llvm::fast_shutdown_debug_counters() {
+  if (DebugCounterInitialized)
+    DebugCounterOwner::instance().printIfEnabled();
+}
 
 void llvm::initDebugCounterOptions() { (void)DebugCounter::instance(); }
 

@@ -15,7 +15,7 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/Support/CrashRecoveryContext.h"
-#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/FastShutdown.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
@@ -99,12 +99,11 @@ void lld::exitLld(int val) {
   // safeLldMain().
   CrashRecoveryContext::throwIfCrash(val);
 
-  // Dealloc/destroy ManagedStatic variables before calling _exit().
-  // In an LTO build, allows us to get the output of -time-passes.
-  // Ensures that the thread pool for the parallel algorithms is stopped to
-  // avoid intermittent crashes on Windows when exiting.
+  // We will call _exit() but want to get the output of -time-passes in an LTO
+  // build. Also ensures that the thread pool for the parallel algorithms is
+  // stopped to avoid intermittent crashes on Windows when exiting.
   if (!CrashRecoveryContext::GetCurrent())
-    llvm_shutdown();
+    llvm_fast_shutdown();
 
   if (hasContext())
     lld::errorHandler().flushStreams();

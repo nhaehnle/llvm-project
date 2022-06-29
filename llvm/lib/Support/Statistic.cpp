@@ -28,8 +28,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FastShutdown.h"
 #include "llvm/Support/Format.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/YAMLTraits.h"
@@ -58,12 +58,17 @@ void llvm::initStatisticOptions() {
 }
 
 namespace {
-/// This class is used in a ManagedStatic so that it is created on demand (when
-/// the first statistic is bumped) and destroyed only when llvm_shutdown is
-/// called. We print statistics from the destructor.
+/// This class is instantiated via a function scope static variable so that it
+/// is created on demand (when the first statistic is bumped) and destroyed only
+/// when global destructors are run.
+///
+/// We print statistics from the destructor or when llvm_fast_shutdown() is
+/// called.
+///
 /// This class is also used to look up statistic values from applications that
 /// use LLVM.
 class StatisticInfo {
+  sys::SmartMutex<true> Lock;
   std::vector<TrackingStatistic *> Stats;
 
   friend void llvm::PrintStatistics();
@@ -78,6 +83,8 @@ public:
   StatisticInfo();
   ~StatisticInfo();
 
+  sys::SmartMutex<true> &getLock() { return Lock; }
+
   void addStatistic(TrackingStatistic *S) { Stats.push_back(S); }
 
   const_iterator begin() const { return Stats.begin(); }
@@ -90,24 +97,27 @@ public:
 };
 } // end anonymous namespace
 
-static ManagedStatic<StatisticInfo> StatInfo;
-static ManagedStatic<sys::SmartMutex<true> > StatLock;
+// Whether the executor has ever been initialized.
+//
+// This variable is only read via the llvm_fast_shutdown path, whose caller is
+// responsible for ensuring that no other threads are running; and it is only
+// written to by the StatisticInfo constructor and destructor, which can only
+// be run from a single thread.
+static bool StatisticInfoInitialized = false;
+
+static StatisticInfo &getStatInfo() {
+  static StatisticInfo StatInfo;
+  return StatInfo;
+}
 
 /// RegisterStatistic - The first time a statistic is bumped, this method is
 /// called.
 void TrackingStatistic::RegisterStatistic() {
   // If stats are enabled, inform StatInfo that this statistic should be
   // printed.
-  // llvm_shutdown calls destructors while holding the ManagedStatic mutex.
-  // These destructors end up calling PrintStatistics, which takes StatLock.
-  // Since dereferencing StatInfo and StatLock can require taking the
-  // ManagedStatic mutex, doing so with StatLock held would lead to a lock
-  // order inversion. To avoid that, we dereference the ManagedStatics first,
-  // and only take StatLock afterwards.
   if (!Initialized.load(std::memory_order_relaxed)) {
-    sys::SmartMutex<true> &Lock = *StatLock;
-    StatisticInfo &SI = *StatInfo;
-    sys::SmartScopedLock<true> Writer(Lock);
+    StatisticInfo &SI = getStatInfo();
+    sys::SmartScopedLock<true> Writer(SI.getLock());
     // Check Initialized again after acquiring the lock.
     if (Initialized.load(std::memory_order_relaxed))
       return;
@@ -120,6 +130,9 @@ void TrackingStatistic::RegisterStatistic() {
 }
 
 StatisticInfo::StatisticInfo() {
+  assert(!StatisticInfoInitialized);
+  StatisticInfoInitialized = true;
+
   // Ensure that necessary timer global objects are created first so they are
   // destructed after us.
   TimerGroup::constructForStatistics();
@@ -129,6 +142,7 @@ StatisticInfo::StatisticInfo() {
 StatisticInfo::~StatisticInfo() {
   if (EnableStats || PrintOnExit)
     llvm::PrintStatistics();
+  StatisticInfoInitialized = false;
 }
 
 void llvm::EnableStatistics(bool DoPrintOnExit) {
@@ -152,7 +166,7 @@ void StatisticInfo::sort() {
 }
 
 void StatisticInfo::reset() {
-  sys::SmartScopedLock<true> Writer(*StatLock);
+  sys::SmartScopedLock<true> Writer(getLock());
 
   // Tell each statistic that it isn't registered so it has to register
   // again. We're holding the lock so it won't be able to do so until we're
@@ -174,7 +188,8 @@ void StatisticInfo::reset() {
 }
 
 void llvm::PrintStatistics(raw_ostream &OS) {
-  StatisticInfo &Stats = *StatInfo;
+  StatisticInfo &Stats = getStatInfo();
+  sys::SmartScopedLock<true> Reader(Stats.getLock());
 
   // Figure out how long the biggest Value and Name fields are.
   unsigned MaxDebugTypeLen = 0, MaxValLen = 0;
@@ -201,8 +216,8 @@ void llvm::PrintStatistics(raw_ostream &OS) {
 }
 
 void llvm::PrintStatisticsJSON(raw_ostream &OS) {
-  sys::SmartScopedLock<true> Reader(*StatLock);
-  StatisticInfo &Stats = *StatInfo;
+  StatisticInfo &Stats = getStatInfo();
+  sys::SmartScopedLock<true> Reader(Stats.getLock());
 
   Stats.sort();
 
@@ -228,8 +243,8 @@ void llvm::PrintStatisticsJSON(raw_ostream &OS) {
 
 void llvm::PrintStatistics() {
 #if LLVM_ENABLE_STATS
-  sys::SmartScopedLock<true> Reader(*StatLock);
-  StatisticInfo &Stats = *StatInfo;
+  StatisticInfo &Stats = getStatInfo();
+  sys::SmartScopedLock<true> Reader(Stats.getLock());
 
   // Statistics not enabled?
   if (Stats.Stats.empty()) return;
@@ -255,14 +270,17 @@ void llvm::PrintStatistics() {
 }
 
 std::vector<std::pair<StringRef, uint64_t>> llvm::GetStatistics() {
-  sys::SmartScopedLock<true> Reader(*StatLock);
+  sys::SmartScopedLock<true> Reader(getStatInfo().getLock());
   std::vector<std::pair<StringRef, uint64_t>> ReturnStats;
 
-  for (const auto &Stat : StatInfo->statistics())
+  for (const auto &Stat : getStatInfo().statistics())
     ReturnStats.emplace_back(Stat->getName(), Stat->getValue());
   return ReturnStats;
 }
 
-void llvm::ResetStatistics() {
-  StatInfo->reset();
+void llvm::ResetStatistics() { getStatInfo().reset(); }
+
+void llvm::fast_shutdown_statistics() {
+  if (StatisticInfoInitialized)
+    llvm::PrintStatistics();
 }

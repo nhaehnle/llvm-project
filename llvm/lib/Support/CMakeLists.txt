@@ -159,6 +159,7 @@ add_llvm_component_library(LLVMSupport
   Error.cpp
   ErrorHandling.cpp
   ExtensibleRTTI.cpp
+  FastShutdown.cpp
   FileCollector.cpp
   FileUtilities.cpp
   FileOutputBuffer.cpp

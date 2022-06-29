@@ -1434,6 +1434,31 @@ Note that graph visualization features are compiled out of Release builds to
 reduce file size.  This means that you need a Debug+Asserts or Release+Asserts
 build to use these features.
 
+.. _FastShutdown:
+
+Fast process shutdown
+---------------------
+
+LLVM is used in a wide variety of environments, including by loadable components
+in long running processes like IDEs and in graphics drivers. To enable these
+use cases, care is taken to properly cleanup state and free resources in
+destructors.
+
+When LLVM is used in command-line tools, this cleanup is often unnecessary
+since the operating system will free resources anyway. Such tools may want to
+exit the process without cleanups to save a little bit of time. The
+``sys::Process::Exit`` allows this to be done in a portable manner.
+
+However, there are a few components in LLVM which perform useful tasks from
+global destructors, for example, working around platform-specific issues with
+thread pools and printing statistics (the ``-stats`` command-line option).
+These tasks can be run manually via the ``llvm_fast_shutdown`` function:
+
+.. code-block:: c++
+
+  llvm_fast_shutdown();
+  sys::Process::Exit(RetCode, /* NoCleanup */ true);
+
 .. _datastructure:
 
 Picking the Right Data Structure for a Task

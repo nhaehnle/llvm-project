@@ -9,8 +9,8 @@
 /// \file
 /// This file defines the 'Statistic' class, which is designed to be an easy way
 /// to expose various metrics from passes.  These statistics are printed at the
-/// end of a run (from llvm_shutdown), when the -stats command line option is
-/// passed on the command line.
+/// end of a run (from global destructors or when llvm_fast_shutdown is called),
+/// when the -stats command line option is passed on the command line.
 ///
 /// This is useful for reporting information like the number of instructions
 /// simplified, optimized or removed by various transformations, like this:

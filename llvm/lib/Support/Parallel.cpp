@@ -8,7 +8,7 @@
 
 #include "llvm/Support/Parallel.h"
 #include "llvm/Config/llvm-config.h"
-#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/FastShutdown.h"
 #include "llvm/Support/Threading.h"
 
 #include <atomic>
@@ -26,13 +26,22 @@ namespace detail {
 
 namespace {
 
+class ThreadPoolExecutor;
+
+// Whether the executor has ever been initialized.
+//
+// This variable is only read via the llvm_fast_shutdown path, whose caller is
+// responsible for ensuring that no other threads are running; and it is only
+// written to at most once, by the ThreadPoolExecutor constructor.
+static bool DefaultExecutorInitialized = false;
+
 /// An abstract class that takes closures and runs them asynchronously.
 class Executor {
 public:
   virtual ~Executor() = default;
   virtual void add(std::function<void()> func) = 0;
 
-  static Executor *getDefaultExecutor();
+  static ThreadPoolExecutor *getDefaultExecutor();
 };
 
 /// An implementation of an Executor that runs closures on a thread pool
@@ -40,6 +49,9 @@ public:
 class ThreadPoolExecutor : public Executor {
 public:
   explicit ThreadPoolExecutor(ThreadPoolStrategy S = hardware_concurrency()) {
+    assert(!DefaultExecutorInitialized);
+    DefaultExecutorInitialized = true;
+
     unsigned ThreadCount = S.compute_thread_count();
     // Spawn all but one of the threads in another thread as spawning threads
     // can take a while.
@@ -78,13 +90,6 @@ public:
         T.join();
   }
 
-  struct Creator {
-    static void *call() { return new ThreadPoolExecutor(strategy); }
-  };
-  struct Deleter {
-    static void call(void *Ptr) { ((ThreadPoolExecutor *)Ptr)->stop(); }
-  };
-
   void add(std::function<void()> F) override {
     {
       std::lock_guard<std::mutex> Lock(Mutex);
@@ -116,30 +121,9 @@ private:
   std::vector<std::thread> Threads;
 };
 
-Executor *Executor::getDefaultExecutor() {
-  // The ManagedStatic enables the ThreadPoolExecutor to be stopped via
-  // llvm_shutdown() which allows a "clean" fast exit, e.g. via _exit(). This
-  // stops the thread pool and waits for any worker thread creation to complete
-  // but does not wait for the threads to finish. The wait for worker thread
-  // creation to complete is important as it prevents intermittent crashes on
-  // Windows due to a race condition between thread creation and process exit.
-  //
-  // The ThreadPoolExecutor will only be destroyed when the static unique_ptr to
-  // it is destroyed, i.e. in a normal full exit. The ThreadPoolExecutor
-  // destructor ensures it has been stopped and waits for worker threads to
-  // finish. The wait is important as it prevents intermittent crashes on
-  // Windows when the process is doing a full exit.
-  //
-  // The Windows crashes appear to only occur with the MSVC static runtimes and
-  // are more frequent with the debug static runtime.
-  //
-  // This also prevents intermittent deadlocks on exit with the MinGW runtime.
-
-  static ManagedStatic<ThreadPoolExecutor, ThreadPoolExecutor::Creator,
-                       ThreadPoolExecutor::Deleter>
-      ManagedExec;
-  static std::unique_ptr<ThreadPoolExecutor> Exec(&(*ManagedExec));
-  return Exec.get();
+ThreadPoolExecutor *Executor::getDefaultExecutor() {
+  static ThreadPoolExecutor Exec;
+  return &Exec;
 }
 } // namespace
 } // namespace detail
@@ -181,6 +165,32 @@ void TaskGroup::execute(std::function<void()> F) {
 }
 } // namespace parallel
 } // namespace llvm
+
+void llvm::fast_shutdown_parallel() {
+#if LLVM_ENABLE_THREADS
+  // Stop the executor, but only if it has been started.
+  //
+  // This allows a "clean" fast exit, via llvm_fast_shutdown() and e.g. _exit().
+  // This stops the thread pool and waits for any worker thread creation to
+  // complete but does not wait for the threads to finish. The wait for worker
+  // thread creation to complete is important as it prevents intermittent
+  // crashes on Windows due to a race condition between thread creation and
+  // process exit.
+  //
+  // The ThreadPoolExecutor will only be destroyed when the static unique_ptr to
+  // it is destroyed, i.e. in a normal full exit. The ThreadPoolExecutor
+  // destructor ensures it has been stopped and waits for worker threads to
+  // finish. The wait is important as it prevents intermittent crashes on
+  // Windows when the process is doing a full exit.
+  //
+  // The Windows crashes appear to only occur with the MSVC static runtimes and
+  // are more frequent with the debug static runtime.
+  //
+  // This also prevents intermittent deadlocks on exit with the MinGW runtime.
+  if (parallel::detail::DefaultExecutorInitialized)
+    parallel::detail::Executor::getDefaultExecutor()->stop();
+#endif
+}
 
 void llvm::parallelFor(size_t Begin, size_t End,
                        llvm::function_ref<void(size_t)> Fn) {
