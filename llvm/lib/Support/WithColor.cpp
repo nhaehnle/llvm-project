@@ -12,7 +12,6 @@
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
-#include "llvm/Support/ManagedStatic.h"
 
 using namespace llvm;
 
@@ -21,21 +20,23 @@ cl::OptionCategory &llvm::getColorCategory() {
   return ColorCategory;
 }
 namespace {
-struct CreateUseColor {
-  static void *call() {
-    return new cl::opt<cl::boolOrDefault>(
-        "color", cl::cat(getColorCategory()),
-        cl::desc("Use colors in output (default=autodetect)"),
-        cl::init(cl::BOU_UNSET));
-  }
+struct Options {
+  cl::opt<cl::boolOrDefault> UseColor{
+      "color", cl::cat(getColorCategory()),
+      cl::desc("Use colors in output (default=autodetect)"),
+      cl::init(cl::BOU_UNSET)};
 };
+
+Options &getOptions() {
+  static Options Opt;
+  return Opt;
+}
 } // namespace
-static ManagedStatic<cl::opt<cl::boolOrDefault>, CreateUseColor> UseColor;
-void llvm::initWithColorOptions() { *UseColor; }
+void llvm::initWithColorOptions() { (void)getOptions(); }
 
 static bool DefaultAutoDetectFunction(const raw_ostream &OS) {
-  return *UseColor == cl::BOU_UNSET ? OS.has_colors()
-                                    : *UseColor == cl::BOU_TRUE;
+  cl::boolOrDefault UseColor = getOptions().UseColor;
+  return UseColor == cl::BOU_UNSET ? OS.has_colors() : UseColor == cl::BOU_TRUE;
 }
 
 WithColor::AutoDetectFunctionType WithColor::AutoDetectFunction =

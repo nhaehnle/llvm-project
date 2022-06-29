@@ -29,19 +29,23 @@ using namespace llvm;
 
 #define DEBUG_TYPE "rng"
 namespace {
-struct CreateSeed {
-  static void *call() {
-    return new cl::opt<uint64_t>(
-        "rng-seed", cl::value_desc("seed"), cl::Hidden,
-        cl::desc("Seed for the random number generator"), cl::init(0));
-  }
+struct Options {
+  cl::opt<uint64_t> Seed{"rng-seed", cl::value_desc("seed"), cl::Hidden,
+                         cl::desc("Seed for the random number generator"),
+                         cl::init(0)};
 };
+
+static Options &getOptions() {
+  static Options Opt;
+  return Opt;
+}
 } // namespace
-static ManagedStatic<cl::opt<uint64_t>, CreateSeed> Seed;
-void llvm::initRandomSeedOptions() { *Seed; }
+
+void llvm::initRandomSeedOptions() { getOptions(); }
 
 RandomNumberGenerator::RandomNumberGenerator(StringRef Salt) {
-  LLVM_DEBUG(if (*Seed == 0) dbgs()
+  auto Seed = getOptions().Seed.getValue();
+  LLVM_DEBUG(if (Seed == 0) dbgs()
              << "Warning! Using unseeded random number generator.\n");
 
   // Combine seed and salts using std::seed_seq.
@@ -51,8 +55,8 @@ RandomNumberGenerator::RandomNumberGenerator(StringRef Salt) {
   // twister constructor copies these correctly into its initial state.
   std::vector<uint32_t> Data;
   Data.resize(2 + Salt.size());
-  Data[0] = *Seed;
-  Data[1] = *Seed >> 32;
+  Data[0] = Seed;
+  Data[1] = Seed >> 32;
 
   llvm::copy(Salt, Data.begin() + 2);
 

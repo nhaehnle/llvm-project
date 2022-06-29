@@ -23,13 +23,13 @@
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/FormatVariadic.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/StringSaver.h"
 #include "llvm/Support/raw_ostream.h"
 #include <array>
+#include <atomic>
 #include <vector>
 
 //===----------------------------------------------------------------------===//
@@ -41,33 +41,25 @@ using namespace llvm;
 
 // Use explicit storage to avoid accessing cl::opt in a signal handler.
 static bool DisableSymbolicationFlag = false;
-static ManagedStatic<std::string> CrashDiagnosticsDirectory;
+static std::string CrashDiagnosticsDirectory;
 namespace {
-struct CreateDisableSymbolication {
-  static void *call() {
-    return new cl::opt<bool, true>(
-        "disable-symbolication",
-        cl::desc("Disable symbolizing crash backtraces."),
-        cl::location(DisableSymbolicationFlag), cl::Hidden);
-  }
+struct Options {
+  cl::opt<bool, true> DisableSymbolication{
+      "disable-symbolication",
+      cl::desc("Disable symbolizing crash backtraces."),
+      cl::location(DisableSymbolicationFlag), cl::Hidden};
+  cl::opt<std::string, true> CrashDiagnosticsDir{
+      "crash-diagnostics-dir", cl::value_desc("directory"),
+      cl::desc("Directory for crash diagnostic files."),
+      cl::location(CrashDiagnosticsDirectory), cl::Hidden};
 };
-struct CreateCrashDiagnosticsDir {
-  static void *call() {
-    return new cl::opt<std::string, true>(
-        "crash-diagnostics-dir", cl::value_desc("directory"),
-        cl::desc("Directory for crash diagnostic files."),
-        cl::location(*CrashDiagnosticsDirectory), cl::Hidden);
-  }
-};
-} // namespace
-void llvm::initSignalsOptions() {
-  static ManagedStatic<cl::opt<bool, true>, CreateDisableSymbolication>
-      DisableSymbolication;
-  static ManagedStatic<cl::opt<std::string, true>, CreateCrashDiagnosticsDir>
-      CrashDiagnosticsDir;
-  *DisableSymbolication;
-  *CrashDiagnosticsDir;
+
+Options &getOptions() {
+  static Options Opt;
+  return Opt;
 }
+} // namespace
+void llvm::initSignalsOptions() { getOptions(); }
 
 constexpr char DisableSymbolizationEnv[] = "LLVM_DISABLE_SYMBOLIZATION";
 constexpr char LLVMSymbolizerPathEnv[] = "LLVM_SYMBOLIZER_PATH";

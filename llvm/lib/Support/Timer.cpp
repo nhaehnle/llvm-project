@@ -20,7 +20,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Signposts.h"
@@ -38,63 +37,43 @@
 
 using namespace llvm;
 
-// This ugly hack is brought to you courtesy of constructor/destructor ordering
-// being unspecified by C++.  Basically the problem is that a Statistic object
-// gets destroyed, which ends up calling 'GetLibSupportInfoOutputFile()'
-// (below), which calls this function.  LibSupportInfoOutputFilename used to be
-// a global variable, but sometimes it would get destroyed before the Statistic,
-// causing havoc to ensue.  We "fix" this by creating the string the first time
-// it is needed and never destroying it.
-static ManagedStatic<std::string> LibSupportInfoOutputFilename;
-static std::string &getLibSupportInfoOutputFilename() {
-  return *LibSupportInfoOutputFilename;
+sys::SmartMutex<true> &getTimerLock() {
+  static sys::SmartMutex<true> TimerLock;
+  return TimerLock;
 }
-
-static ManagedStatic<sys::SmartMutex<true> > TimerLock;
 
 /// Allows llvm::Timer to emit signposts when supported.
-static ManagedStatic<SignpostEmitter> Signposts;
-
-namespace {
-struct CreateTrackSpace {
-  static void *call() {
-    return new cl::opt<bool>("track-memory",
-                             cl::desc("Enable -time-passes memory "
-                                      "tracking (this may be slow)"),
-                             cl::Hidden);
-  }
-};
-static ManagedStatic<cl::opt<bool>, CreateTrackSpace> TrackSpace;
-struct CreateInfoOutputFilename {
-  static void *call() {
-    return new cl::opt<std::string, true>(
-        "info-output-file", cl::value_desc("filename"),
-        cl::desc("File to append -stats and -timer output to"), cl::Hidden,
-        cl::location(getLibSupportInfoOutputFilename()));
-  }
-};
-static ManagedStatic<cl::opt<std::string, true>, CreateInfoOutputFilename>
-    InfoOutputFilename;
-struct CreateSortTimers {
-  static void *call() {
-    return new cl::opt<bool>(
-        "sort-timers",
-        cl::desc("In the report, sort the timers in each group "
-                 "in wall clock time order"),
-        cl::init(true), cl::Hidden);
-  }
-};
-ManagedStatic<cl::opt<bool>, CreateSortTimers> SortTimers;
-} // namespace
-
-void llvm::initTimerOptions() {
-  *TrackSpace;
-  *InfoOutputFilename;
-  *SortTimers;
+SignpostEmitter &getSignposts() {
+  static SignpostEmitter Signposts;
+  return Signposts;
 }
 
+namespace {
+struct Options {
+  cl::opt<bool> TrackSpace{"track-memory",
+                           cl::desc("Enable -time-passes memory "
+                                    "tracking (this may be slow)"),
+                           cl::Hidden};
+  cl::opt<std::string> InfoOutputFilename{
+      "info-output-file", cl::value_desc("filename"),
+      cl::desc("File to append -stats and -timer output to"), cl::Hidden};
+  cl::opt<bool> SortTimers{
+      "sort-timers",
+      cl::desc("In the report, sort the timers in each group "
+               "in wall clock time order"),
+      cl::init(true), cl::Hidden};
+};
+
+Options &getOptions() {
+  static Options Opt;
+  return Opt;
+}
+} // namespace
+
+void llvm::initTimerOptions() { (void)getOptions(); }
+
 std::unique_ptr<raw_fd_ostream> llvm::CreateInfoOutputFile() {
-  const std::string &OutputFilename = getLibSupportInfoOutputFilename();
+  const std::string &OutputFilename = getOptions().InfoOutputFilename;
   if (OutputFilename.empty())
     return std::make_unique<raw_fd_ostream>(2, false); // stderr.
   if (OutputFilename == "-")
@@ -116,14 +95,16 @@ std::unique_ptr<raw_fd_ostream> llvm::CreateInfoOutputFile() {
 }
 
 namespace {
-struct CreateDefaultTimerGroup {
-  static void *call() {
-    return new TimerGroup("misc", "Miscellaneous Ungrouped Timers");
-  }
+struct DefaultTimerGroup {
+  std::unique_ptr<TimerGroup> Group;
+  DefaultTimerGroup()
+      : Group(new TimerGroup("misc", "Miscellaneous Ungrouped Timers")) {}
 };
 } // namespace
-static ManagedStatic<TimerGroup, CreateDefaultTimerGroup> DefaultTimerGroup;
-static TimerGroup *getDefaultTimerGroup() { return &*DefaultTimerGroup; }
+static std::unique_ptr<TimerGroup> &getDefaultTimerGroup() {
+  static DefaultTimerGroup TheDefaultTimerGroup;
+  return TheDefaultTimerGroup.Group;
+}
 
 //===----------------------------------------------------------------------===//
 // Timer Implementation
@@ -149,7 +130,7 @@ Timer::~Timer() {
 }
 
 static inline size_t getMemUsage() {
-  if (!*TrackSpace)
+  if (!getOptions().TrackSpace)
     return 0;
   return sys::Process::GetMallocUsage();
 }
@@ -190,7 +171,7 @@ TimeRecord TimeRecord::getCurrentTime(bool Start) {
 void Timer::startTimer() {
   assert(!Running && "Cannot start a running timer");
   Running = Triggered = true;
-  Signposts->startInterval(this, getName());
+  getSignposts().startInterval(this, getName());
   StartTime = TimeRecord::getCurrentTime(true);
 }
 
@@ -199,7 +180,7 @@ void Timer::stopTimer() {
   Running = false;
   Time += TimeRecord::getCurrentTime(false);
   Time -= StartTime;
-  Signposts->endInterval(this, getName());
+  getSignposts().endInterval(this, getName());
 }
 
 void Timer::clear() {
@@ -251,7 +232,7 @@ public:
 
   Timer &get(StringRef Name, StringRef Description, StringRef GroupName,
              StringRef GroupDescription) {
-    sys::SmartScopedLock<true> L(*TimerLock);
+    sys::SmartScopedLock<true> L(getTimerLock());
 
     std::pair<TimerGroup*, Name2TimerMap> &GroupEntry = Map[GroupName];
 
@@ -265,16 +246,20 @@ public:
   }
 };
 
+Name2PairMap &getNamedGroupedTimers() {
+  static Name2PairMap NamedGroupedTimers;
+  return NamedGroupedTimers;
 }
 
-static ManagedStatic<Name2PairMap> NamedGroupedTimers;
+} // namespace
 
 NamedRegionTimer::NamedRegionTimer(StringRef Name, StringRef Description,
                                    StringRef GroupName,
                                    StringRef GroupDescription, bool Enabled)
-  : TimeRegion(!Enabled ? nullptr
-                 : &NamedGroupedTimers->get(Name, Description, GroupName,
-                                            GroupDescription)) {}
+    : TimeRegion(!Enabled ? nullptr
+                          : &getNamedGroupedTimers().get(Name, Description,
+                                                         GroupName,
+                                                         GroupDescription)) {}
 
 //===----------------------------------------------------------------------===//
 //   TimerGroup Implementation
@@ -288,7 +273,7 @@ TimerGroup::TimerGroup(StringRef Name, StringRef Description)
   : Name(Name.begin(), Name.end()),
     Description(Description.begin(), Description.end()) {
   // Add the group to TimerGroupList.
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
   if (TimerGroupList)
     TimerGroupList->Prev = &Next;
   Next = TimerGroupList;
@@ -313,7 +298,7 @@ TimerGroup::~TimerGroup() {
     removeTimer(*FirstTimer);
 
   // Remove the group from the TimerGroupList.
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
   *Prev = Next;
   if (Next)
     Next->Prev = Prev;
@@ -321,7 +306,7 @@ TimerGroup::~TimerGroup() {
 
 
 void TimerGroup::removeTimer(Timer &T) {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
 
   // If the timer was started, move its data to TimersToPrint.
   if (T.hasTriggered())
@@ -344,7 +329,7 @@ void TimerGroup::removeTimer(Timer &T) {
 }
 
 void TimerGroup::addTimer(Timer &T) {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
 
   // Add the timer to our list.
   if (FirstTimer)
@@ -356,7 +341,7 @@ void TimerGroup::addTimer(Timer &T) {
 
 void TimerGroup::PrintQueuedTimers(raw_ostream &OS) {
   // Perhaps sort the timers in descending order by amount of time taken.
-  if (*SortTimers)
+  if (getOptions().SortTimers)
     llvm::sort(TimersToPrint);
 
   TimeRecord Total;
@@ -374,7 +359,7 @@ void TimerGroup::PrintQueuedTimers(raw_ostream &OS) {
   // If this is not an collection of ungrouped times, print the total time.
   // Ungrouped timers don't really make sense to add up.  We still print the
   // TOTAL line to make the percentages make sense.
-  if (this != getDefaultTimerGroup())
+  if (this != getDefaultTimerGroup().get())
     OS << format("  Total Execution Time: %5.4f seconds (%5.4f wall clock)\n",
                  Total.getProcessTime(), Total.getWallTime());
   OS << '\n';
@@ -426,7 +411,7 @@ void TimerGroup::prepareToPrintList(bool ResetTime) {
 void TimerGroup::print(raw_ostream &OS, bool ResetAfterPrint) {
   {
     // After preparing the timers we can free the lock
-    sys::SmartScopedLock<true> L(*TimerLock);
+    sys::SmartScopedLock<true> L(getTimerLock());
     prepareToPrintList(ResetAfterPrint);
   }
 
@@ -436,20 +421,20 @@ void TimerGroup::print(raw_ostream &OS, bool ResetAfterPrint) {
 }
 
 void TimerGroup::clear() {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
   for (Timer *T = FirstTimer; T; T = T->Next)
     T->clear();
 }
 
 void TimerGroup::printAll(raw_ostream &OS) {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
 
   for (TimerGroup *TG = TimerGroupList; TG; TG = TG->Next)
     TG->print(OS);
 }
 
 void TimerGroup::clearAll() {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
   for (TimerGroup *TG = TimerGroupList; TG; TG = TG->Next)
     TG->clear();
 }
@@ -466,7 +451,7 @@ void TimerGroup::printJSONValue(raw_ostream &OS, const PrintRecord &R,
 }
 
 const char *TimerGroup::printJSONValues(raw_ostream &OS, const char *delim) {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
 
   prepareToPrintList(false);
   for (const PrintRecord &R : TimersToPrint) {
@@ -493,17 +478,17 @@ const char *TimerGroup::printJSONValues(raw_ostream &OS, const char *delim) {
 }
 
 const char *TimerGroup::printAllJSONValues(raw_ostream &OS, const char *delim) {
-  sys::SmartScopedLock<true> L(*TimerLock);
+  sys::SmartScopedLock<true> L(getTimerLock());
   for (TimerGroup *TG = TimerGroupList; TG; TG = TG->Next)
     delim = TG->printJSONValues(OS, delim);
   return delim;
 }
 
 void TimerGroup::constructForStatistics() {
-  (void)getLibSupportInfoOutputFilename();
-  (void)*NamedGroupedTimers;
+  (void)getOptions();
+  (void)getNamedGroupedTimers();
 }
 
 std::unique_ptr<TimerGroup> TimerGroup::aquireDefaultGroup() {
-  return std::unique_ptr<TimerGroup>(DefaultTimerGroup.claim());
+  return std::move(getDefaultTimerGroup());
 }

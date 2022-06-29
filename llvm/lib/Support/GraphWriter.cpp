@@ -36,21 +36,23 @@
 
 using namespace llvm;
 
-#ifdef __APPLE__
 namespace {
-struct CreateViewBackground {
-  static void *call() {
-    return new cl::opt<bool>("view-background", cl::Hidden,
-                             cl::desc("Execute graph viewer in the background. "
-                                      "Creates tmp file litter."));
-  }
-};
-} // namespace
-static ManagedStatic<cl::opt<bool>, CreateViewBackground> ViewBackground;
-void llvm::initGraphWriterOptions() { *ViewBackground; }
-#else
-void llvm::initGraphWriterOptions() {}
+struct Options {
+#ifdef __APPLE__
+  cl::opt<bool> ViewBackground{
+      "view-background", cl::Hidden,
+      cl::desc("Execute graph viewer in the background. "
+               "Creates tmp file litter.")};
 #endif
+};
+
+static Options &getOptions() {
+  static Options Opt;
+  return Opt;
+}
+} // namespace
+
+void llvm::initGraphWriterOptions() { getOptions(); }
 
 std::string llvm::DOT::EscapeString(const std::string &Label) {
   std::string Str(Label);
@@ -195,7 +197,7 @@ bool llvm::DisplayGraph(StringRef FilenameRef, bool wait,
   GraphSession S;
 
 #ifdef __APPLE__
-  wait &= !*ViewBackground;
+  wait &= !getOptions().ViewBackground;
   if (S.TryFindProgram("open", ViewerPath)) {
     std::vector<StringRef> args;
     args.push_back(ViewerPath);

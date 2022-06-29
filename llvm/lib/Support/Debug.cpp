@@ -25,7 +25,6 @@
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/circular_raw_ostream.h"
 #include "llvm/Support/raw_ostream.h"
@@ -44,17 +43,20 @@ namespace llvm {
 /// Exported boolean set by the -debug option.
 bool DebugFlag = false;
 
-static ManagedStatic<std::vector<std::string>> CurrentDebugType;
+static std::vector<std::string> &getCurrentDebugType() {
+  static std::vector<std::string> CurrentDebugType;
+  return CurrentDebugType;
+}
 
 /// Return true if the specified string is the debug type
 /// specified on the command line, or if none was specified on the command line
 /// with the -debug-only=X option.
 bool isCurrentDebugType(const char *DebugType) {
-  if (CurrentDebugType->empty())
+  if (getCurrentDebugType().empty())
     return true;
   // See if DebugType is in list. Note: do not use find() as that forces us to
   // unnecessarily create an std::string instance.
-  for (auto &d : *CurrentDebugType) {
+  for (auto &d : getCurrentDebugType()) {
     if (d == DebugType)
       return true;
   }
@@ -72,9 +74,9 @@ void setCurrentDebugType(const char *Type) {
 }
 
 void setCurrentDebugTypes(const char **Types, unsigned Count) {
-  CurrentDebugType->clear();
+  getCurrentDebugType().clear();
   for (size_t T = 0; T < Count; ++T)
-    CurrentDebugType->push_back(Types[T]);
+    getCurrentDebugType().push_back(Types[T]);
 }
 } // namespace llvm
 
@@ -82,34 +84,6 @@ void setCurrentDebugTypes(const char **Types, unsigned Count) {
 #ifndef NDEBUG
 
 namespace {
-struct CreateDebug {
-  static void *call() {
-    return new cl::opt<bool, true>("debug", cl::desc("Enable debug output"),
-                                   cl::Hidden, cl::location(DebugFlag));
-  }
-};
-
-// -debug-buffer-size - Buffer the last N characters of debug output
-//until program termination.
-struct CreateDebugBufferSize {
-  static void *call() {
-    return new cl::opt<unsigned>(
-        "debug-buffer-size",
-        cl::desc("Buffer the last N characters of debug output "
-                 "until program termination. "
-                 "[default 0 -- immediate print-out]"),
-        cl::Hidden, cl::init(0));
-  }
-};
-} // namespace
-
-// -debug - Command line option to enable the DEBUG statements in the passes.
-// This flag may only be enabled in debug builds.
-static ManagedStatic<cl::opt<bool, true>, CreateDebug> Debug;
-static ManagedStatic<cl::opt<unsigned>, CreateDebugBufferSize> DebugBufferSize;
-
-namespace {
-
 struct DebugOnlyOpt {
   void operator=(const std::string &Val) const {
     if (Val.empty())
@@ -118,35 +92,40 @@ struct DebugOnlyOpt {
     SmallVector<StringRef,8> dbgTypes;
     StringRef(Val).split(dbgTypes, ',', -1, false);
     for (auto dbgType : dbgTypes)
-      CurrentDebugType->push_back(std::string(dbgType));
+      getCurrentDebugType().push_back(std::string(dbgType));
   }
 };
-} // namespace
 
-static DebugOnlyOpt DebugOnlyOptLoc;
+struct DebugOptions {
+  // -debug - Command line option to enable the DEBUG statements in the passes.
+  // This flag may only be enabled in debug builds.
+  cl::opt<bool, true> Debug{"debug", cl::desc("Enable debug output"),
+                            cl::Hidden, cl::location(DebugFlag)};
 
-namespace {
-struct CreateDebugOnly {
-  static void *call() {
-    return new cl::opt<DebugOnlyOpt, true, cl::parser<std::string>>(
-        "debug-only",
-        cl::desc("Enable a specific type of debug output (comma separated list "
-                 "of types)"),
-        cl::Hidden, cl::value_desc("debug string"),
-        cl::location(DebugOnlyOptLoc), cl::ValueRequired);
-  }
+  // -debug-buffer-size - Buffer the last N characters of debug output
+  // until program termination.
+  cl::opt<unsigned> DebugBufferSize{
+      "debug-buffer-size",
+      cl::desc("Buffer the last N characters of debug output "
+               "until program termination. "
+               "[default 0 -- immediate print-out]"),
+      cl::Hidden, cl::init(0)};
+
+  cl::opt<DebugOnlyOpt, false, cl::parser<std::string>> DebugOnly{
+      "debug-only",
+      cl::desc("Enable a specific type of debug output (comma separated list "
+               "of types)"),
+      cl::Hidden, cl::value_desc("debug string"), cl::ValueRequired};
 };
-} // namespace
 
-static ManagedStatic<cl::opt<DebugOnlyOpt, true, cl::parser<std::string>>,
-                     CreateDebugOnly>
-    DebugOnly;
-
-void llvm::initDebugOptions() {
-  *Debug;
-  *DebugBufferSize;
-  *DebugOnly;
+DebugOptions &getDebugOptions() {
+  static DebugOptions Opts;
+  return Opts;
 }
+
+} // namespace
+
+void llvm::initDebugOptions() { getDebugOptions(); }
 
 // Signal handlers - dump debug output on termination.
 static void debug_user_sig_handler(void *Cookie) {
@@ -167,8 +146,11 @@ raw_ostream &llvm::dbgs() {
 
     dbgstream()
         : strm(errs(), "*** Debug Log Output ***\n",
-               (!EnableDebugBuffering || !DebugFlag) ? 0 : *DebugBufferSize) {
-      if (EnableDebugBuffering && DebugFlag && *DebugBufferSize != 0)
+               (!EnableDebugBuffering || !DebugFlag)
+                   ? 0
+                   : getDebugOptions().DebugBufferSize) {
+      if (EnableDebugBuffering && DebugFlag &&
+          getDebugOptions().DebugBufferSize != 0)
         // TODO: Add a handler for SIGUSER1-type signals so the user can
         // force a debug dump.
         sys::AddSignalHandler(&debug_user_sig_handler, nullptr);
