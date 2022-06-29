@@ -22,7 +22,6 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Mutex.h"
 #include "llvm/Support/TypeName.h"
 #include "llvm/Support/raw_ostream.h"
@@ -92,8 +91,6 @@ private:
   Timer *newPassTimer(StringRef PassID, StringRef PassDesc);
 };
 
-static ManagedStatic<sys::SmartMutex<true>> TimingInfoMutex;
-
 PassTimingInfo::PassTimingInfo()
     : TG("pass", "... Pass execution timing report ...") {}
 
@@ -110,8 +107,8 @@ void PassTimingInfo::init() {
   // Constructed the first time this is called, iff -time-passes is enabled.
   // This guarantees that the object will be constructed after static globals,
   // thus it will be destroyed before them.
-  static ManagedStatic<PassTimingInfo> TTI;
-  TheTimeInfo = &*TTI;
+  static PassTimingInfo TTI;
+  TheTimeInfo = &TTI;
 }
 
 /// Prints out timing information and then resets the timers.
@@ -133,7 +130,8 @@ Timer *PassTimingInfo::getPassTimer(Pass *P, PassInstanceID Pass) {
     return nullptr;
 
   init();
-  sys::SmartScopedLock<true> Lock(*TimingInfoMutex);
+  static sys::SmartMutex<true> TimingInfoMutex;
+  sys::SmartScopedLock<true> Lock(TimingInfoMutex);
   std::unique_ptr<Timer> &T = TimingData[Pass];
 
   if (!T) {
