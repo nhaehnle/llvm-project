@@ -53,6 +53,7 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <iterator>

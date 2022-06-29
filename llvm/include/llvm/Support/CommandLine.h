@@ -30,7 +30,6 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cassert>
 #include <climits>
@@ -238,12 +237,6 @@ public:
   Option *ConsumeAfterOpt = nullptr; // The ConsumeAfter option if it exists.
 };
 
-// A special subcommand representing no subcommand
-extern ManagedStatic<SubCommand> TopLevelSubCommand;
-
-// A special subcommand that can be used to put an option into all subcommands.
-extern ManagedStatic<SubCommand> AllSubCommands;
-
 //===----------------------------------------------------------------------===//
 //
 class Option {
@@ -346,16 +339,16 @@ protected:
   inline void setNumAdditionalVals(unsigned n) { AdditionalVals = n; }
 
 public:
-  virtual ~Option() = default;
+  virtual ~Option() {
+    if (FullyInitialized)
+      removeArgument();
+  }
 
   // Register this argument with the commandline system.
   //
   void addArgument();
 
   /// Unregisters this option from the CommandLine system.
-  ///
-  /// This option must have been the last option registered.
-  /// For testing purposes only.
   void removeArgument();
 
   // Return the width of the option tag for printing...
