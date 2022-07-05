@@ -3076,17 +3076,6 @@ Ending Execution with ``llvm_shutdown()``
 When you are done using the LLVM APIs, you should call ``llvm_shutdown()`` to
 deallocate memory used for internal structures.
 
-.. _managedstatic:
-
-Lazy Initialization with ``ManagedStatic``
-------------------------------------------
-
-``ManagedStatic`` is a utility class in LLVM used to implement static
-initialization of static resources, such as the global type tables.  In a
-single-threaded environment, it implements a simple lazy initialization scheme.
-When LLVM is compiled with support for multi-threading, however, it uses
-double-checked locking to implement thread-safe lazy initialization.
-
 .. _llvmcontext:
 
 Achieving Isolation with ``LLVMContext``

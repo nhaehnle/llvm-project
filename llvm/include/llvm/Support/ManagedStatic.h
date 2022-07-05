@@ -80,7 +80,9 @@ public:
 ///
 template <class C, class Creator = object_creator<C>,
           class Deleter = object_deleter<C>>
-class ManagedStatic : public ManagedStaticBase {
+class [[deprecated("ManagedStatic is deprecated and will be removed; use "
+                   "function scope static variables in a getter function "
+                   "instead")]] ManagedStatic : public ManagedStaticBase {
 public:
   // Accessors.
   C &operator*() {
