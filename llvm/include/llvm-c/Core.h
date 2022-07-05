@@ -474,10 +474,8 @@ typedef unsigned LLVMAttributeIndex;
 
 void LLVMInitializeCore(LLVMPassRegistryRef R);
 
-/** Deallocate and destroy all ManagedStatic variables.
-    @see llvm::llvm_shutdown
-    @see ManagedStatic */
-void LLVMShutdown(void);
+LLVM_ATTRIBUTE_C_DEPRECATED(void LLVMShutdown(void),
+                            "This function has become a no-op");
 
 /*===-- Error handling ----------------------------------------------------===*/
 

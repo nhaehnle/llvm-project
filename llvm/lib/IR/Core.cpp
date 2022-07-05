@@ -32,7 +32,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/raw_ostream.h"
@@ -57,9 +56,8 @@ void LLVMInitializeCore(LLVMPassRegistryRef R) {
   initializeCore(*unwrap(R));
 }
 
-void LLVMShutdown() {
-  llvm_shutdown();
-}
+// Deprecated.
+void LLVMShutdown() {}
 
 /*===-- Error handling ----------------------------------------------------===*/
 

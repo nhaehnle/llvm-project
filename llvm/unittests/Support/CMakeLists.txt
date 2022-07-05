@@ -56,7 +56,6 @@ add_llvm_unittest(SupportTests
   LockFileManagerTest.cpp
   MatchersTest.cpp
   MD5Test.cpp
-  ManagedStatic.cpp
   MathExtrasTest.cpp
   MemoryBufferRefTest.cpp
   MemoryBufferTest.cpp
@@ -127,7 +126,6 @@ if(MSVC)
   endif()
 endif()
 
-# ManagedStatic.cpp uses <pthread>.
 target_link_libraries(SupportTests PRIVATE LLVMTestingSupport ${LLVM_PTHREAD_LIB})
 
 if(NOT LLVM_INTEGRATED_CRT_ALLOC)

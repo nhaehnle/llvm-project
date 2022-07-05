@@ -3068,14 +3068,6 @@ compiler, consider compiling LLVM and LLVM-GCC in single-threaded mode, and
 using the resultant compiler to build a copy of LLVM with multithreading
 support.
 
-.. _shutdown:
-
-Ending Execution with ``llvm_shutdown()``
------------------------------------------
-
-When you are done using the LLVM APIs, you should call ``llvm_shutdown()`` to
-deallocate memory used for internal structures.
-
 .. _llvmcontext:
 
 Achieving Isolation with ``LLVMContext``

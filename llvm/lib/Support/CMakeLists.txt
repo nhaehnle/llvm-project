@@ -181,7 +181,6 @@ add_llvm_component_library(LLVMSupport
   Locale.cpp
   LockFileManager.cpp
   LowLevelType.cpp
-  ManagedStatic.cpp
   MathExtras.cpp
   MemAlloc.cpp
   MemoryBuffer.cpp
