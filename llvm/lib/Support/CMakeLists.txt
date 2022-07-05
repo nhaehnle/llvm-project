@@ -3,7 +3,6 @@ include(GetLibraryName)
 # Ensure that libSupport does not carry any static global initializer.
 # libSupport can be embedded in use cases where we don't want to load all
 # cl::opt unless we want to parse the command line.
-# ManagedStatic can be used to enable lazy-initialization of globals.
 # We don't use `add_flag_if_supported` as instead of compiling an empty file we
 # check if the current platform is able to compile global std::mutex with this
 # flag (Linux can, Darwin can't for example).

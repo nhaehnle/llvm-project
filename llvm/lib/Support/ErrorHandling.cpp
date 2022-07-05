@@ -47,8 +47,6 @@ static void *BadAllocErrorHandlerUserData = nullptr;
 
 #if LLVM_ENABLE_THREADS == 1
 // Mutexes to synchronize installing error handlers and calling error handlers.
-// Do not use ManagedStatic, or that may allocate memory while attempting to
-// report an OOM.
 //
 // This usage of std::mutex has to be conditionalized behind ifdefs because
 // of this script:
