@@ -34,6 +34,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/CrashRecoveryContext.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FastShutdown.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/InitLLVM.h"
@@ -327,16 +328,17 @@ static int ExecuteCC1Tool(SmallVectorImpl<const char *> &ArgV) {
   return 1;
 }
 
-int clang_main(int Argc, char **Argv) {
-  noteBottomOfStack();
-  llvm::InitLLVM X(Argc, Argv);
-  llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
-                        " and include the crash backtrace, preprocessed "
-                        "source, and associated run script.\n");
+// Return (FastShutdown, RetCode).
+//
+// Fast shutdown is implemented in the caller. We want the locals of this
+// function to be cleaned up even when fast shutdown is used, as at least the
+// driver's destructor must run to properly flush and close output streams (at
+// least the compilation database stream).
+static std::pair<bool, int> ExecuteClang(int Argc, char **Argv) {
   SmallVector<const char *, 256> Args(Argv, Argv + Argc);
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
-    return 1;
+    return {false, 1};
 
   llvm::InitializeAllTargets();
 
@@ -385,7 +387,7 @@ int clang_main(int Argc, char **Argv) {
       auto newEnd = std::remove(Args.begin(), Args.end(), nullptr);
       Args.resize(newEnd - Args.begin());
     }
-    return ExecuteCC1Tool(Args);
+    return {false, ExecuteCC1Tool(Args)};
   }
 
   // Handle options that need handling before the real command line parsing in
@@ -494,7 +496,7 @@ int clang_main(int Argc, char **Argv) {
     if (!Level) {
       llvm::errs() << "Unknown value for " << A->getSpelling() << ": '"
                    << A->getValue() << "'\n";
-      return 1;
+      return {false, 1};
     }
     ReproLevel = *Level;
   }
@@ -572,5 +574,25 @@ int clang_main(int Argc, char **Argv) {
 
   // If we have multiple failing commands, we return the result of the first
   // failing command.
+  bool FastShutdown = !C->isForDiagnostics();
+  return {FastShutdown, Res};
+}
+
+int clang_main(int Argc, char **Argv) {
+  noteBottomOfStack();
+  llvm::InitLLVM X(Argc, Argv);
+  llvm::setBugReportMsg("PLEASE submit a bug report to " BUG_REPORT_URL
+                        " and include the crash backtrace, preprocessed "
+                        "source, and associated run script.\n");
+
+  bool FastShutdown;
+  int Res;
+  std::tie(FastShutdown, Res) = ExecuteClang(Argc, Argv);
+
+  if (FastShutdown) {
+    llvm::llvm_fast_shutdown();
+    llvm::sys::Process::Exit(Res, /*NoCleanup=*/true);
+  }
+
   return Res;
 }
