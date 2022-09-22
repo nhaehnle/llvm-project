@@ -23,8 +23,9 @@ add_tablegen(clang-tblgen CLANG
   RISCVVEmitter.cpp
   SveEmitter.cpp
   TableGen.cpp
+  ../../lib/Support/RISCVVIntrinsicUtils.cpp
   )
 
-target_link_libraries(clang-tblgen PRIVATE clangSupport)
+#target_link_libraries(clang-tblgen PRIVATE clangSupport)
 
 set_target_properties(clang-tblgen PROPERTIES FOLDER "Clang tablegenning")
