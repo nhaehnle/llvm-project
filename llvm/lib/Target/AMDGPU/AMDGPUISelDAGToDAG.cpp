@@ -26,8 +26,10 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/Support/Casting.h"
 
 #ifdef EXPENSIVE_CHECKS
 #include "llvm/Analysis/LoopInfo.h"
@@ -674,6 +676,11 @@ void AMDGPUDAGToDAGISel::Select(SDNode *N) {
 
     SelectS_BFE(N);
     return;
+  case ISD::OR:
+    if (Select_BFI(N))
+      return;
+
+    break;
   case ISD::BRCOND:
     SelectBRCOND(N);
     return;
@@ -2144,6 +2151,171 @@ void AMDGPUDAGToDAGISel::SelectS_BFEFromShifts(SDNode *N) {
     }
   }
   SelectCode(N);
+}
+
+bool AMDGPUDAGToDAGISel::Select_BFI(SDNode *N) {
+  struct BFIOperandData {
+    SDNode *Transform;
+    SDValue Base;
+    SDValue Const;
+    SDValue Insert;
+
+    int64_t C;
+    int64_t D;
+    int64_t NotCAndNotD;
+    bool IsTail = false;
+  };
+
+  SmallVector<BFIOperandData, 2> BFIOps;
+
+  auto GetBaseAndConstFromAnd = [](const SDValue &And, SDValue &Base,
+                                   SDValue &Const) -> bool {
+    ConstantSDNode *CheckConst = dyn_cast<ConstantSDNode>(And.getOperand(1));
+    if (!CheckConst) {
+      return false;
+    }
+
+    SDValue And0 = And.getOperand(0);
+    SDValue And1 = And.getOperand(1);
+
+    if (And0.getValueType() != And1.getValueType())
+      return false;
+
+    Base = And0;
+    Const = And1;
+
+    return true;
+  };
+
+  auto GetSExtValueFromConstant = [](SDValue Constant, int64_t &Out) -> bool {
+    ConstantSDNode *Base = dyn_cast<ConstantSDNode>(Constant);
+    if (Base) {
+      Out = Base->getSExtValue();
+      return true;
+    }
+
+    return false;
+  };
+
+  auto GetNonTailOrOperands = [&](SDNode *OrNode, SDNode *&OrBase,
+                                  SDValue &AndBase, SDValue &AndConst) -> bool {
+    SDValue Or0 = OrNode->getOperand(0);
+    SDValue Or1 = OrNode->getOperand(1);
+    SDValue And;
+
+    if (Or0.getOpcode() == ISD::AND && Or1.getOpcode() == ISD::OR) {
+      And = Or0;
+      OrBase = Or1.getNode();
+    } else if (Or1.getOpcode() == ISD::AND && Or0.getOpcode() == ISD::OR) {
+      And = Or1;
+      OrBase = Or0.getNode();
+    } else
+      return false;
+
+    return GetBaseAndConstFromAnd(And, AndBase, AndConst);
+  };
+
+  SDNode *CurrentOr = N;
+  SDValue CurrentAndConst;
+  bool DidVisitTop = false;
+  while (CurrentOr) {
+    // Fetch the top-level AND operands.
+    SDValue CurrentAndBase;
+    SDNode *NestedOr = CurrentOr;
+    if (GetNonTailOrOperands(CurrentOr, NestedOr, CurrentAndBase,
+                             CurrentAndConst)) {
+      int64_t C;
+      if (!GetSExtValueFromConstant(CurrentAndConst, C))
+        break;
+
+      BFIOperandData CurrData;
+      CurrData.IsTail = false;
+      CurrData.C = C;
+      CurrData.Transform = CurrentOr;
+      CurrData.Base = CurrentOr->getOperand(0);
+      CurrData.Insert = CurrentAndBase;
+      CurrData.Const = CurrentAndConst;
+      BFIOps.push_back(CurrData);
+
+      // Save and continue
+      CurrentOr = NestedOr;
+      DidVisitTop = true;
+    } else {
+      // It is required that a relevant top-level OR instruction has been
+      // visited.
+      if (!DidVisitTop)
+        break;
+
+      // Try get bottom-level operands
+      SDValue O0 = NestedOr->getOperand(0);
+      SDValue O1 = NestedOr->getOperand(1);
+      if (O0.getOpcode() == ISD::AND && O1.getOpcode() == ISD::AND) {
+        SDValue NestedAnd1Base;
+        SDValue NestedAnd1Const;
+        if (!GetBaseAndConstFromAnd(O0, NestedAnd1Base, NestedAnd1Const))
+          break;
+
+        SDValue NestedAnd2Base;
+        SDValue NestedAnd2Const;
+        if (!GetBaseAndConstFromAnd(O1, NestedAnd2Base, NestedAnd2Const))
+          break;
+
+        int64_t D, NotCAndNotD;
+        if (!GetSExtValueFromConstant(NestedAnd1Const, D) ||
+            !GetSExtValueFromConstant(NestedAnd2Const, NotCAndNotD))
+          break;
+
+        BFIOperandData CurrData;
+        CurrData.IsTail = true;
+        CurrData.D = D;
+        CurrData.NotCAndNotD = NotCAndNotD;
+        CurrData.Insert = NestedAnd1Base;
+        CurrData.Base = NestedAnd2Base;
+        CurrData.Transform = NestedOr;
+        CurrData.Const = NestedAnd1Const;
+        BFIOps.push_back(CurrData);
+      }
+
+      break;
+    }
+  }
+
+  // To generate nested v_bfi instructions, we need at least
+  // two entries in BFIOps.
+  if (!DidVisitTop)
+    return false;
+
+  bool DidTransform = false;
+  bool CanTransformSequence = false;
+  int64_t C = 0, D, NotCAndNotD;
+  for (auto &BFITuple : BFIOps) {
+    if (!BFITuple.IsTail) {
+      C |= BFITuple.C;
+    } else {
+      D = BFITuple.D;
+      NotCAndNotD = BFITuple.NotCAndNotD;
+      if (C == D || C == NotCAndNotD || D == NotCAndNotD)
+        break;
+
+      if (~C == (D | NotCAndNotD) && (C | D | NotCAndNotD) == -1)
+        CanTransformSequence = true;
+    }
+  }
+
+  if (CanTransformSequence) {
+    for (auto &BFITuple : BFIOps) {
+      // If the bitmasks are disjoint and a bit partition of -1,
+      // and it can be figured out that the bitmask inside the last OR is a
+      // combination of C and D, then the original sequence of two nested V_BFI
+      // instructions can be reproduced.
+      SDValue Args[] = {BFITuple.Const, BFITuple.Insert, BFITuple.Base};
+      CurDAG->SelectNodeTo(BFITuple.Transform, AMDGPU::V_BFI_B32_e64,
+                           BFITuple.Transform->getValueType(0), Args);
+      DidTransform = true;
+    }
+  }
+
+  return DidTransform;
 }
 
 void AMDGPUDAGToDAGISel::SelectS_BFE(SDNode *N) {

@@ -262,6 +262,7 @@ private:
   void SelectFMUL_W_CHAIN(SDNode *N);
   SDNode *getBFE32(bool IsSigned, const SDLoc &DL, SDValue Val, uint32_t Offset,
                    uint32_t Width);
+  bool Select_BFI(SDNode *N);
   void SelectS_BFEFromShifts(SDNode *N);
   void SelectS_BFE(SDNode *N);
   bool isCBranchSCC(const SDNode *N) const;
