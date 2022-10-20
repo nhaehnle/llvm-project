@@ -2153,169 +2153,90 @@ void AMDGPUDAGToDAGISel::SelectS_BFEFromShifts(SDNode *N) {
   SelectCode(N);
 }
 
+// Select 32-bit clauses of the form
+//
+//   (x1 & c1) | (x2 & c2) ... | (xk & ck)
+//
+// to a chain of V_BFI_B32 instructions if the constant masks allow it.
 bool AMDGPUDAGToDAGISel::Select_BFI(SDNode *N) {
-  struct BFIOperandData {
-    SDNode *Transform;
-    SDValue Base;
-    SDValue Const;
-    SDValue Insert;
-
-    int64_t C;
-    int64_t D;
-    int64_t NotCAndNotD;
-    bool IsTail = false;
+  struct BFITermData {
+    SDValue Input;
+    uint32_t Mask;
   };
 
-  SmallVector<BFIOperandData, 2> BFIOps;
+  if (N->getValueType(0) != MVT::i32)
+    return false;
 
-  auto GetBaseAndConstFromAnd = [](const SDValue &And, SDValue &Base,
-                                   SDValue &Const) -> bool {
-    ConstantSDNode *CheckConst = dyn_cast<ConstantSDNode>(And.getOperand(1));
-    if (!CheckConst) {
-      return false;
-    }
+  // Collect the terms (xi & ci), checking that the masks ci are constant and
+  // disjoint bitwise. Handle arbitrarily re-associated ORs by maintaining a
+  // worklist of OR nodes.
+  SmallVector<SDNode *, 2> Ors;
+  SmallVector<BFITermData, 4> BFITerms;
+  uint32_t TotalMasks = 0;
 
-    SDValue And0 = And.getOperand(0);
-    SDValue And1 = And.getOperand(1);
+  assert(N->getOpcode() == ISD::OR);
+  Ors.push_back(N);
 
-    if (And0.getValueType() != And1.getValueType())
-      return false;
+  do {
+    auto CollectBFITerm = [&](SDValue Candidate) -> bool {
+      if (Candidate->getOpcode() != ISD::AND)
+        return false;
 
-    Base = And0;
-    Const = And1;
+      ConstantSDNode *MaskConst =
+          dyn_cast<ConstantSDNode>(Candidate->getOperand(1));
+      if (!MaskConst)
+        return false;
 
-    return true;
-  };
+      uint32_t Mask = MaskConst->getZExtValue();
+      if (TotalMasks & Mask)
+        return false;
 
-  auto GetSExtValueFromConstant = [](SDValue Constant, int64_t &Out) -> bool {
-    ConstantSDNode *Base = dyn_cast<ConstantSDNode>(Constant);
-    if (Base) {
-      Out = Base->getSExtValue();
+      BFITermData Term;
+      Term.Input = Candidate->getOperand(0);
+      Term.Mask = MaskConst->getZExtValue();
+
+      TotalMasks |= Term.Mask;
+      BFITerms.push_back(Term);
       return true;
-    }
+    };
 
-    return false;
-  };
-
-  auto GetNonTailOrOperands = [&](SDNode *OrNode, SDNode *&OrBase,
-                                  SDValue &AndBase, SDValue &AndConst) -> bool {
-    SDValue Or0 = OrNode->getOperand(0);
-    SDValue Or1 = OrNode->getOperand(1);
-    SDValue And;
-
-    if (Or0.getOpcode() == ISD::AND && Or1.getOpcode() == ISD::OR) {
-      And = Or0;
-      OrBase = Or1.getNode();
-    } else if (Or1.getOpcode() == ISD::AND && Or0.getOpcode() == ISD::OR) {
-      And = Or1;
-      OrBase = Or0.getNode();
-    } else
+    SDNode *CurrentOr = Ors.pop_back_val();
+    SDValue LHS = CurrentOr->getOperand(0);
+    if (LHS->getOpcode() == ISD::OR)
+      Ors.push_back(LHS.getNode());
+    else if (!CollectBFITerm(LHS))
       return false;
 
-    return GetBaseAndConstFromAnd(And, AndBase, AndConst);
-  };
+    SDValue RHS = CurrentOr->getOperand(1);
+    if (RHS->getOpcode() == ISD::OR)
+      Ors.push_back(RHS.getNode());
+    else if (!CollectBFITerm(RHS))
+      return false;
+  } while (!Ors.empty());
 
-  SDNode *CurrentOr = N;
-  SDValue CurrentAndConst;
-  bool DidVisitTop = false;
-  while (CurrentOr) {
-    // Fetch the top-level AND operands.
-    SDValue CurrentAndBase;
-    SDNode *NestedOr = CurrentOr;
-    if (GetNonTailOrOperands(CurrentOr, NestedOr, CurrentAndBase,
-                             CurrentAndConst)) {
-      int64_t C;
-      if (!GetSExtValueFromConstant(CurrentAndConst, C))
-        break;
-
-      BFIOperandData CurrData;
-      CurrData.IsTail = false;
-      CurrData.C = C;
-      CurrData.Transform = CurrentOr;
-      CurrData.Base = CurrentOr->getOperand(0);
-      CurrData.Insert = CurrentAndBase;
-      CurrData.Const = CurrentAndConst;
-      BFIOps.push_back(CurrData);
-
-      // Save and continue
-      CurrentOr = NestedOr;
-      DidVisitTop = true;
-    } else {
-      // It is required that a relevant top-level OR instruction has been
-      // visited.
-      if (!DidVisitTop)
-        break;
-
-      // Try get bottom-level operands
-      SDValue O0 = NestedOr->getOperand(0);
-      SDValue O1 = NestedOr->getOperand(1);
-      if (O0.getOpcode() == ISD::AND && O1.getOpcode() == ISD::AND) {
-        SDValue NestedAnd1Base;
-        SDValue NestedAnd1Const;
-        if (!GetBaseAndConstFromAnd(O0, NestedAnd1Base, NestedAnd1Const))
-          break;
-
-        SDValue NestedAnd2Base;
-        SDValue NestedAnd2Const;
-        if (!GetBaseAndConstFromAnd(O1, NestedAnd2Base, NestedAnd2Const))
-          break;
-
-        int64_t D, NotCAndNotD;
-        if (!GetSExtValueFromConstant(NestedAnd1Const, D) ||
-            !GetSExtValueFromConstant(NestedAnd2Const, NotCAndNotD))
-          break;
-
-        BFIOperandData CurrData;
-        CurrData.IsTail = true;
-        CurrData.D = D;
-        CurrData.NotCAndNotD = NotCAndNotD;
-        CurrData.Insert = NestedAnd1Base;
-        CurrData.Base = NestedAnd2Base;
-        CurrData.Transform = NestedOr;
-        CurrData.Const = NestedAnd1Const;
-        BFIOps.push_back(CurrData);
-      }
-
-      break;
-    }
-  }
-
-  // To generate nested v_bfi instructions, we need at least
-  // two entries in BFIOps.
-  if (!DidVisitTop)
+  // N has the required form, but we still need to check that the constant
+  // masks.
+  if (TotalMasks != 0xffffffff) {
+    // TODO: Look for known zero bits in the BFITerm inputs and adjust masks
+    //       accordingly if possible.
     return false;
-
-  bool DidTransform = false;
-  bool CanTransformSequence = false;
-  int64_t C = 0, D, NotCAndNotD;
-  for (auto &BFITuple : BFIOps) {
-    if (!BFITuple.IsTail) {
-      C |= BFITuple.C;
-    } else {
-      D = BFITuple.D;
-      NotCAndNotD = BFITuple.NotCAndNotD;
-      if (C == D || C == NotCAndNotD || D == NotCAndNotD)
-        break;
-
-      if (~C == (D | NotCAndNotD) && (C | D | NotCAndNotD) == -1)
-        CanTransformSequence = true;
-    }
   }
 
-  if (CanTransformSequence) {
-    for (auto &BFITuple : BFIOps) {
-      // If the bitmasks are disjoint and a bit partition of -1,
-      // and it can be figured out that the bitmask inside the last OR is a
-      // combination of C and D, then the original sequence of two nested V_BFI
-      // instructions can be reproduced.
-      SDValue Args[] = {BFITuple.Const, BFITuple.Insert, BFITuple.Base};
-      CurDAG->SelectNodeTo(BFITuple.Transform, AMDGPU::V_BFI_B32_e64,
-                           BFITuple.Transform->getValueType(0), Args);
-      DidTransform = true;
-    }
+  // Create the BFI sequence.
+  SDLoc DL{N};
+  SDValue Tmp = BFITerms.back().Input;
+  for (const auto &Term : makeArrayRef(BFITerms).drop_back()) {
+    SDValue Args[] = {
+      CurDAG->getConstant(Term.Mask, DL, MVT::i32),
+      Term.Input,
+      Tmp
+    };
+    auto *BFI =
+        CurDAG->getMachineNode(AMDGPU::V_BFI_B32_e64, DL, MVT::i32, Args);
+    Tmp = SDValue(BFI, 0);
   }
-
-  return DidTransform;
+  ReplaceNode(N, Tmp.getNode());
+  return true;
 }
 
 void AMDGPUDAGToDAGISel::SelectS_BFE(SDNode *N) {

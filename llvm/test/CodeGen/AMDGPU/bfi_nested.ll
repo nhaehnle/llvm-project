@@ -15,15 +15,15 @@ define float @v_bfi_single_nesting_level (float %x, float %y, float %z) {
 ; GFX10:       ; %bb.0: ; %.entry
 ; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX10-NEXT:    s_waitcnt_vscnt null, 0x0
+; GFX10-NEXT:    v_mul_f32_e32 v0, 0x447fc000, v0
 ; GFX10-NEXT:    v_mul_f32_e32 v2, 0x447fc000, v2
 ; GFX10-NEXT:    v_cvt_u32_f32_e32 v1, v1
-; GFX10-NEXT:    v_mul_f32_e32 v0, 0x447fc000, v0
+; GFX10-NEXT:    v_cvt_u32_f32_e32 v0, v0
 ; GFX10-NEXT:    v_cvt_u32_f32_e32 v2, v2
 ; GFX10-NEXT:    v_lshlrev_b32_e32 v1, 10, v1
-; GFX10-NEXT:    v_cvt_u32_f32_e32 v0, v0
-; GFX10-NEXT:    v_bfi_b32 v1, 0xffc00, v1, v2
 ; GFX10-NEXT:    v_lshlrev_b32_e32 v0, 20, v0
-; GFX10-NEXT:    v_bfi_b32 v0, 0x3ff00000, v0, v1
+; GFX10-NEXT:    v_bfi_b32 v0, 0x3ff00000, v0, v2
+; GFX10-NEXT:    v_bfi_b32 v0, 0xffc00, v1, v0
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 .entry:
   %mul.base = fmul reassoc nnan nsz arcp contract afn float %z, 1.023000e+03
@@ -81,16 +81,16 @@ define float @v_bfi_two_levels(float %x, float %y, float %z) {
 ; GFX10:       ; %bb.0: ; %.entry
 ; GFX10-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
 ; GFX10-NEXT:    s_waitcnt_vscnt null, 0x0
+; GFX10-NEXT:    v_mul_f32_e32 v0, 0x447fc000, v0
 ; GFX10-NEXT:    v_cvt_u32_f32_e32 v1, v1
 ; GFX10-NEXT:    v_cvt_u32_f32_e32 v2, v2
-; GFX10-NEXT:    v_mul_f32_e32 v0, 0x447fc000, v0
-; GFX10-NEXT:    v_lshlrev_b32_e32 v3, 5, v1
-; GFX10-NEXT:    v_lshlrev_b32_e32 v1, 10, v1
 ; GFX10-NEXT:    v_cvt_u32_f32_e32 v0, v0
-; GFX10-NEXT:    v_bfi_b32 v2, 0x3e0, v3, v2
+; GFX10-NEXT:    v_lshlrev_b32_e32 v3, 10, v1
+; GFX10-NEXT:    v_lshlrev_b32_e32 v1, 5, v1
 ; GFX10-NEXT:    v_lshlrev_b32_e32 v0, 20, v0
-; GFX10-NEXT:    v_bfi_b32 v1, 0xffc00, v1, v2
-; GFX10-NEXT:    v_bfi_b32 v0, 0x3ff00000, v0, v1
+; GFX10-NEXT:    v_bfi_b32 v0, 0x3ff00000, v0, v2
+; GFX10-NEXT:    v_bfi_b32 v0, 0xffc00, v3, v0
+; GFX10-NEXT:    v_bfi_b32 v0, 0x3e0, v1, v0
 ; GFX10-NEXT:    s_setpc_b64 s[30:31]
 .entry:
   %y.i32 = fptoui float %y to i32
