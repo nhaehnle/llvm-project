@@ -17,10 +17,6 @@ if(LLVM_BUILD_LLVM_DYLIB)
 
   llvm_map_components_to_libnames(LIB_NAMES ${LLVM_DYLIB_COMPONENTS})
 
-  # Exclude libLLVMTableGen for the following reasons:
-  #  - it is only used by internal *-tblgen utilities;
-  list(REMOVE_ITEM LIB_NAMES "LLVMTableGen")
-
   if(LLVM_DYLIB_EXPORTED_SYMBOL_FILE)
     set(LLVM_EXPORTED_SYMBOL_FILE ${LLVM_DYLIB_EXPORTED_SYMBOL_FILE})
     add_custom_target(libLLVMExports DEPENDS ${LLVM_EXPORTED_SYMBOL_FILE})
