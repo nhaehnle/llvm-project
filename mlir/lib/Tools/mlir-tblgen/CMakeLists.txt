@@ -4,8 +4,6 @@ llvm_add_library(MLIRTblgenLib STATIC
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Tools/mlir-tblgen
 
-  DISABLE_LLVM_LINK_LLVM_DYLIB
-
   LINK_COMPONENTS
   TableGen
 

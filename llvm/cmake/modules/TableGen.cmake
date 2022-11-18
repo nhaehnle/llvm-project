@@ -141,7 +141,7 @@ function(add_public_tablegen_target target)
 endfunction()
 
 macro(add_tablegen target project)
-  cmake_parse_arguments(ADD_TABLEGEN "" "DESTINATION;EXPORT" "" ${ARGN})
+  cmake_parse_arguments(ADD_TABLEGEN "DISABLE_LLVM_LINK_LLVM_DYLIB" "DESTINATION;EXPORT" "" ${ARGN})
 
   set(${target}_OLD_LLVM_LINK_COMPONENTS ${LLVM_LINK_COMPONENTS})
   set(LLVM_LINK_COMPONENTS ${LLVM_LINK_COMPONENTS} TableGen)
@@ -152,9 +152,16 @@ macro(add_tablegen target project)
     set(LLVM_ENABLE_OBJLIB ON)
   endif()
 
-  add_llvm_executable(${target} DISABLE_LLVM_LINK_LLVM_DYLIB
+  set(add_executable_dylib_opt "")
+  if(ADD_TABLEGEN_DISABLE_LLVM_LINK_LLVM_DYLIB)
+    set(add_executable_dylib_opt "DISABLE_LLVM_LINK_LLVM_DYLIB")
+  endif()
+
+  add_llvm_executable(${target} ${add_executable_dylib_opt}
     ${ADD_TABLEGEN_UNPARSED_ARGUMENTS})
   set(LLVM_LINK_COMPONENTS ${${target}_OLD_LLVM_LINK_COMPONENTS})
+
+  unset(add_executable_dylib_opt)
 
   set(${project}_TABLEGEN "${target}" CACHE
       STRING "Native TableGen executable. Saves building one when cross-compiling.")

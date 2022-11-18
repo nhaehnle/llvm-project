@@ -96,7 +96,7 @@ function(llvm_create_cross_target project_name target_name toolchain buildtype)
 endfunction()
 
 # Sets up a native build for a tool, used e.g. for cross-compilation and
-# LLVM_OPTIMIZED_TABLEGEN. Always builds in Release.
+# LLVM_OPTIMIZED_TABLEGEN. Always builds in Release and with static linking.
 # - target: The target to build natively
 # - output_path_var: A variable name which receives the path to the built target
 # - DEPENDS: Any additional dependencies for the target

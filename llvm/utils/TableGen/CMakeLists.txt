@@ -3,6 +3,7 @@ add_subdirectory(GlobalISel)
 set(LLVM_LINK_COMPONENTS Support)
 
 add_tablegen(llvm-tblgen LLVM
+  DISABLE_LLVM_LINK_LLVM_DYLIB
   DESTINATION "${LLVM_TOOLS_INSTALL_DIR}"
   EXPORT LLVM
   AsmMatcherEmitter.cpp

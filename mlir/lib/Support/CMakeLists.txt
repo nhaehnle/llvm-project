@@ -30,8 +30,6 @@ add_mlir_library(MLIRSupport
 add_llvm_library(MLIRSupportIndentedOstream
   IndentedOstream.cpp
 
-  DISABLE_LLVM_LINK_LLVM_DYLIB
-
   LINK_COMPONENTS
   Support
   )
