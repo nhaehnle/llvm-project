@@ -193,6 +193,7 @@ static bool wrapperGenMain(llvm::raw_ostream &OS, llvm::RecordKeeper &Records) {
 }
 
 int main(int argc, char *argv[]) {
+  llvm::registerTableGenOptions();
   llvm::cl::ParseCommandLineOptions(argc, argv);
-  return TableGenMain(argv[0], wrapperGenMain);
+  return llvm::TableGenMain(argv[0], wrapperGenMain);
 }

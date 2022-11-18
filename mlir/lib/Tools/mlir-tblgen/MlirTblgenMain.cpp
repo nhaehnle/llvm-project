@@ -129,6 +129,7 @@ int mlir::MlirTblgenMain(int argc, char **argv) {
   llvm::cl::opt<const mlir::GenInfo *, true, mlir::GenNameParser> generator(
       "", llvm::cl::desc("Generator to run"), cl::location(::generator));
 
+  llvm::registerTableGenOptions();
   cl::ParseCommandLineOptions(argc, argv);
 
   return TableGenMain(argv[0], &mlirTableGenMain);

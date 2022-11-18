@@ -18,6 +18,8 @@ namespace llvm {
 class raw_ostream;
 class RecordKeeper;
 
+void registerTableGenOptions();
+
 /// Perform the action using Records, and write output to OS.
 /// Returns true on error, false otherwise.
 using TableGenMainFn = bool (raw_ostream &OS, RecordKeeper &Records);

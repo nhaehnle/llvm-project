@@ -19,7 +19,6 @@ if(LLVM_BUILD_LLVM_DYLIB)
 
   # Exclude libLLVMTableGen for the following reasons:
   #  - it is only used by internal *-tblgen utilities;
-  #  - it pollutes the global options space.
   list(REMOVE_ITEM LIB_NAMES "LLVMTableGen")
 
   if(LLVM_DYLIB_EXPORTED_SYMBOL_FILE)

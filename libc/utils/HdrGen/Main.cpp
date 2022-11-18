@@ -56,6 +56,7 @@ bool HeaderGeneratorMain(llvm::raw_ostream &OS, llvm::RecordKeeper &Records) {
 } // namespace llvm_libc
 
 int main(int argc, char *argv[]) {
+  llvm::registerTableGenOptions();
   llvm::cl::ParseCommandLineOptions(argc, argv);
-  return TableGenMain(argv[0], &llvm_libc::HeaderGeneratorMain);
+  return llvm::TableGenMain(argv[0], &llvm_libc::HeaderGeneratorMain);
 }

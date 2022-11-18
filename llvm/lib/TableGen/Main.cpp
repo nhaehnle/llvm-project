@@ -26,36 +26,45 @@
 #include <system_error>
 using namespace llvm;
 
-static cl::opt<std::string>
-OutputFilename("o", cl::desc("Output filename"), cl::value_desc("filename"),
-               cl::init("-"));
+namespace {
 
-static cl::opt<std::string>
-DependFilename("d",
-               cl::desc("Dependency filename"),
-               cl::value_desc("filename"),
-               cl::init(""));
+struct TableGenOptions {
+  cl::opt<std::string> OutputFilename{"o", cl::desc("Output filename"),
+                                      cl::value_desc("filename"),
+                                      cl::init("-")};
 
-static cl::opt<std::string>
-InputFilename(cl::Positional, cl::desc("<input file>"), cl::init("-"));
+  cl::opt<std::string> DependFilename{"d", cl::desc("Dependency filename"),
+                                      cl::value_desc("filename"), cl::init("")};
 
-static cl::list<std::string>
-IncludeDirs("I", cl::desc("Directory of include files"),
-            cl::value_desc("directory"), cl::Prefix);
+  cl::opt<std::string> InputFilename{cl::Positional, cl::desc("<input file>"),
+                                     cl::init("-")};
 
-static cl::list<std::string>
-MacroNames("D", cl::desc("Name of the macro to be defined"),
-            cl::value_desc("macro name"), cl::Prefix);
+  cl::list<std::string> IncludeDirs{"I", cl::desc("Directory of include files"),
+                                    cl::value_desc("directory"), cl::Prefix};
 
-static cl::opt<bool>
-WriteIfChanged("write-if-changed", cl::desc("Only write output if it changed"));
+  cl::list<std::string> MacroNames{"D",
+                                   cl::desc("Name of the macro to be defined"),
+                                   cl::value_desc("macro name"), cl::Prefix};
 
-static cl::opt<bool>
-TimePhases("time-phases", cl::desc("Time phases of parser and backend"));
+  cl::opt<bool> WriteIfChanged{"write-if-changed",
+                               cl::desc("Only write output if it changed")};
 
-static cl::opt<bool> NoWarnOnUnusedTemplateArgs(
-    "no-warn-on-unused-template-args",
-    cl::desc("Disable unused template argument warnings."));
+  cl::opt<bool> TimePhases{"time-phases",
+                           cl::desc("Time phases of parser and backend")};
+
+  cl::opt<bool> NoWarnOnUnusedTemplateArgs{
+      "no-warn-on-unused-template-args",
+      cl::desc("Disable unused template argument warnings.")};
+};
+
+TableGenOptions &getOpts() {
+  static TableGenOptions Opts;
+  return Opts;
+}
+
+} // anonymous namespace
+
+void llvm::registerTableGenOptions() { (void)getOpts(); }
 
 static int reportError(const char *ProgName, Twine Msg) {
   errs() << ProgName << ": " << Msg;
@@ -68,15 +77,15 @@ static int reportError(const char *ProgName, Twine Msg) {
 /// This functionality is really only for the benefit of the build system.
 /// It is similar to GCC's `-M*` family of options.
 static int createDependencyFile(const TGParser &Parser, const char *argv0) {
-  if (OutputFilename == "-")
+  if (getOpts().OutputFilename == "-")
     return reportError(argv0, "the option -d must be used together with -o\n");
 
   std::error_code EC;
-  ToolOutputFile DepOut(DependFilename, EC, sys::fs::OF_Text);
+  ToolOutputFile DepOut(getOpts().DependFilename, EC, sys::fs::OF_Text);
   if (EC)
-    return reportError(argv0, "error opening " + DependFilename + ":" +
-                                  EC.message() + "\n");
-  DepOut.os() << OutputFilename << ":";
+    return reportError(argv0, "error opening " + getOpts().DependFilename +
+                                  ":" + EC.message() + "\n");
+  DepOut.os() << getOpts().OutputFilename << ":";
   for (const auto &Dep : Parser.getDependencies()) {
     DepOut.os() << ' ' << Dep;
   }
@@ -88,28 +97,31 @@ static int createDependencyFile(const TGParser &Parser, const char *argv0) {
 int llvm::TableGenMain(const char *argv0, TableGenMainFn *MainFn) {
   RecordKeeper Records;
 
-  if (TimePhases)
+  if (getOpts().TimePhases)
     Records.startPhaseTiming();
 
   // Parse the input file.
 
   Records.startTimer("Parse, build records");
   ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
-      MemoryBuffer::getFileOrSTDIN(InputFilename, /*IsText=*/true);
-  if (std::error_code EC = FileOrErr.getError())
-    return reportError(argv0, "Could not open input file '" + InputFilename +
+      MemoryBuffer::getFileOrSTDIN(getOpts().InputFilename, /*IsText=*/true);
+  if (std::error_code EC = FileOrErr.getError()) {
+    return reportError(argv0, "Could not open input file '" +
+                                  getOpts().InputFilename +
                                   "': " + EC.message() + "\n");
+  }
 
-  Records.saveInputFilename(InputFilename);
+  Records.saveInputFilename(getOpts().InputFilename);
 
   // Tell SrcMgr about this buffer, which is what TGParser will pick up.
   SrcMgr.AddNewSourceBuffer(std::move(*FileOrErr), SMLoc());
 
   // Record the location of the include directory so that the lexer can find
   // it later.
-  SrcMgr.setIncludeDirs(IncludeDirs);
+  SrcMgr.setIncludeDirs(getOpts().IncludeDirs);
 
-  TGParser Parser(SrcMgr, MacroNames, Records, NoWarnOnUnusedTemplateArgs);
+  TGParser Parser(SrcMgr, getOpts().MacroNames, Records,
+                  getOpts().NoWarnOnUnusedTemplateArgs);
 
   if (Parser.ParseFile())
     return 1;
@@ -128,28 +140,28 @@ int llvm::TableGenMain(const char *argv0, TableGenMainFn *MainFn) {
   // If it's missing, Ninja considers the output dirty.  If this was below
   // the early exit below and someone deleted the .inc.d file but not the .inc
   // file, tablegen would never write the depfile.
-  if (!DependFilename.empty()) {
+  if (!getOpts().DependFilename.empty()) {
     if (int Ret = createDependencyFile(Parser, argv0))
       return Ret;
   }
 
   Records.startTimer("Write output");
   bool WriteFile = true;
-  if (WriteIfChanged) {
+  if (getOpts().WriteIfChanged) {
     // Only updates the real output file if there are any differences.
     // This prevents recompilation of all the files depending on it if there
     // aren't any.
     if (auto ExistingOrErr =
-            MemoryBuffer::getFile(OutputFilename, /*IsText=*/true))
+            MemoryBuffer::getFile(getOpts().OutputFilename, /*IsText=*/true))
       if (std::move(ExistingOrErr.get())->getBuffer() == Out.str())
         WriteFile = false;
   }
   if (WriteFile) {
     std::error_code EC;
-    ToolOutputFile OutFile(OutputFilename, EC, sys::fs::OF_Text);
+    ToolOutputFile OutFile(getOpts().OutputFilename, EC, sys::fs::OF_Text);
     if (EC)
-      return reportError(argv0, "error opening " + OutputFilename + ": " +
-                                    EC.message() + "\n");
+      return reportError(argv0, "error opening " + getOpts().OutputFilename +
+                                    ": " + EC.message() + "\n");
     OutFile.os() << Out.str();
     if (ErrorsPrinted == 0)
       OutFile.keep();

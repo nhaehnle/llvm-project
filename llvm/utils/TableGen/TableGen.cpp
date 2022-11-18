@@ -286,6 +286,7 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
 
 int main(int argc, char **argv) {
   InitLLVM X(argc, argv);
+  registerTableGenOptions();
   cl::ParseCommandLineOptions(argc, argv);
 
   return TableGenMain(argv[0], &LLVMTableGenMain);
