@@ -4190,6 +4190,82 @@ bool LLParser::parseGlobalValueVector(SmallVectorImpl<Constant *> &Elts,
   return false;
 }
 
+/// parseStructuredData
+///   ::= '{' (key value (',' key value))? ','? '}'
+///
+/// value ::= 'type' type
+///       ::= 'i1' 'true' | 'i1' 'false'
+///       ::= 'iN' integer
+bool LLParser::parseStructuredData(
+    function_ref<bool(LocTy, sdata::Symbol, LocTy, sdata::Value)> ParseField) {
+  if (parseToken(lltok::lbrace, "expected '{' here"))
+    return true;
+
+  while (Lex.getKind() != lltok::rbrace) {
+    if (Lex.getKind() != lltok::LabelStr)
+      return tokError("expected '}' or field label here");
+
+    LocTy KeyLoc = Lex.getLoc();
+    sdata::Symbol Key = SymbolTableLock.getSymbol(Context, Lex.getStrVal());
+    Lex.Lex();
+
+    LocTy ValueLoc = Lex.getLoc();
+    sdata::Value V;
+    switch (Lex.getKind()) {
+    case lltok::kw_type: {
+      Lex.Lex(); // eat 'type'
+
+      Type *T;
+      if (parseType(T, /*AllowVoid=*/true))
+        return true;
+
+      V = sdata::Value(T);
+      break;
+    }
+    case lltok::Type: {
+      Type *Ty = Lex.getTyVal();
+      if (auto *IntTy = dyn_cast<IntegerType>(Ty)) {
+        Lex.Lex();
+
+        switch (Lex.getKind()) {
+        case lltok::APSInt:
+          V = sdata::Value(Lex.getAPSIntVal().extOrTrunc(IntTy->getBitWidth()));
+          Lex.Lex();
+          break;
+        case lltok::kw_true:
+        case lltok::kw_false:
+          if (IntTy->getBitWidth() != 1)
+            return tokError("true/false can only be used with i1");
+          V = sdata::Value(Lex.getKind() == lltok::kw_true);
+          Lex.Lex();
+          break;
+        default:
+          return tokError("expected an integer value");
+        }
+
+        break;
+      }
+
+      return tokError("only integer types are supported in structured data");
+    }
+
+    default:
+      return tokError("expected structured data value");
+    }
+
+    if (ParseField(KeyLoc, Key, ValueLoc, V))
+      return true;
+
+    if (Lex.getKind() == lltok::rbrace)
+      break;
+    if (parseToken(lltok::comma, "expected ',' or '}' here"))
+      return true;
+  }
+
+  Lex.Lex(); // eat the '}'
+  return false;
+}
+
 bool LLParser::parseMDTuple(MDNode *&MD, bool IsDistinct) {
   SmallVector<Metadata *, 16> Elts;
   if (parseMDNodeVector(Elts))

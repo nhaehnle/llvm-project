@@ -3509,6 +3509,35 @@ The syntax for the source file name is simply:
 
     source_filename = "/path/to/source.c"
 
+.. _structured_data:
+
+Structured Data
+---------------
+
+Dictionaries of key-value pairs are used in some cases to represent data in an
+easily extendable, human-readable manner.
+
+The labels used in key-value pairs are identifiers followed immediately by a
+colon (':'), like the label of a named basic block.
+
+:Syntax:
+
+::
+
+    sdata       ::= '{' (sdata_field ',')* sdata_field? '}'
+    sdata_field ::= label sdata_value
+    sdata_value ::= 'type' type
+                ::= 'iN' integer
+                ::= 'i1' 'true' | 'i1' 'false'
+
+:Examples:
+
+::
+
+    {}
+    { layout: type float, }
+    { foo: i1 true, bar: i32 10 }
+
 .. _typesystem:
 
 Type System

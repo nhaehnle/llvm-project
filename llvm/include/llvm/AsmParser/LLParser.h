@@ -20,6 +20,7 @@
 #include "llvm/IR/FMF.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
+#include "llvm/IR/StructuredData.h"
 #include <map>
 #include <optional>
 
@@ -164,6 +165,8 @@ namespace llvm {
 
     // Map of module ID to path.
     std::map<unsigned, StringRef> ModuleIdMap;
+
+    sdata::SymbolTableLockGuard SymbolTableLock;
 
     /// Only the llvm-as tool may set this to false to bypass
     /// UpgradeDebuginfo so it can generate broken bitcode.
@@ -557,6 +560,10 @@ namespace llvm {
     bool parseInstructionMetadata(Instruction &Inst);
     bool parseGlobalObjectMetadataAttachment(GlobalObject &GO);
     bool parseOptionalFunctionMetadata(Function &F);
+
+    bool parseStructuredData(
+        function_ref<bool(LocTy, sdata::Symbol, LocTy, sdata::Value)>
+            ParseField);
 
     template <class FieldTy>
     bool parseMDField(LocTy Loc, StringRef Name, FieldTy &Result);

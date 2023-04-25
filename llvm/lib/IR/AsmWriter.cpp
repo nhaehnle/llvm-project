@@ -58,6 +58,7 @@
 #include "llvm/IR/ModuleSlotTracker.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/StructuredData.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/TypeFinder.h"
 #include "llvm/IR/TypedPointerType.h"
@@ -1322,6 +1323,31 @@ struct AsmWriterContext {
 //===----------------------------------------------------------------------===//
 // AsmWriter Implementation
 //===----------------------------------------------------------------------===//
+
+static void printStructuredData(
+    raw_ostream &Out, ArrayRef<std::pair<sdata::Symbol, sdata::Value>> Fields,
+    AsmWriterContext &Ctx) {
+  Out << "{\n";
+  for (const auto &Field : Fields) {
+    Out << "  " << Field.first.getAsString() << ": ";
+    if (Field.second.isBool()) {
+      if (Field.second.getBool())
+        Out << "i1 true";
+      else
+        Out << "i1 false";
+    } else if (Field.second.isAPInt()) {
+      const APInt &I = Field.second.getAPInt();
+      Out << 'i' << I.getBitWidth() << ' ' << I;
+    } else if (Field.second.isType()) {
+      Out << "type ";
+      Ctx.TypePrinter->print(Field.second.getType(), Out);
+    } else {
+      llvm_unreachable("unhandled sdata::Value type");
+    }
+    Out << ",\n";
+  }
+  Out << '}';
+}
 
 static void WriteAsOperandInternal(raw_ostream &Out, const Value *V,
                                    AsmWriterContext &WriterCtx);
