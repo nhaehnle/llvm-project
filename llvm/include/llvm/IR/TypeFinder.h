@@ -23,6 +23,7 @@ namespace llvm {
 class MDNode;
 class Module;
 class StructType;
+class TargetExtType;
 class Type;
 class Value;
 
@@ -37,6 +38,7 @@ class TypeFinder {
   DenseSet<Type*> VisitedTypes;
 
   std::vector<StructType*> StructTypes;
+  std::vector<TargetExtType *> TargetExtTypes;
   bool OnlyNamed = false;
 
 public:
@@ -45,20 +47,43 @@ public:
   void run(const Module &M, bool onlyNamed);
   void clear();
 
-  using iterator = std::vector<StructType*>::iterator;
-  using const_iterator = std::vector<StructType*>::const_iterator;
+  using struct_iterator = std::vector<StructType *>::iterator;
+  using const_struct_iterator = std::vector<StructType *>::const_iterator;
 
-  iterator begin() { return StructTypes.begin(); }
-  iterator end() { return StructTypes.end(); }
+  struct_iterator structs_begin() { return StructTypes.begin(); }
+  struct_iterator structs_end() { return StructTypes.end(); }
 
-  const_iterator begin() const { return StructTypes.begin(); }
-  const_iterator end() const { return StructTypes.end(); }
+  const_struct_iterator structs_begin() const { return StructTypes.begin(); }
+  const_struct_iterator structs_end() const { return StructTypes.end(); }
 
-  bool empty() const { return StructTypes.empty(); }
-  size_t size() const { return StructTypes.size(); }
-  iterator erase(iterator I, iterator E) { return StructTypes.erase(I, E); }
+  iterator_range<struct_iterator> structs() {
+    return make_range(structs_begin(), structs_end());
+  }
+  iterator_range<const_struct_iterator> structs() const {
+    return make_range(structs_begin(), structs_end());
+  }
 
-  StructType *&operator[](unsigned Idx) { return StructTypes[Idx]; }
+  bool structs_empty() const { return StructTypes.empty(); }
+  size_t structs_size() const { return StructTypes.size(); }
+  struct_iterator structs_erase(struct_iterator I, struct_iterator E) {
+    return StructTypes.erase(I, E);
+  }
+
+  using const_target_ext_iterator =
+      std::vector<TargetExtType *>::const_iterator;
+
+  const_target_ext_iterator target_exts_begin() const {
+    return TargetExtTypes.begin();
+  }
+  const_target_ext_iterator target_exts_end() const {
+    return TargetExtTypes.end();
+  }
+
+  iterator_range<const_target_ext_iterator> target_exts() const {
+    return make_range(target_exts_begin(), target_exts_end());
+  }
+
+  bool target_exts_empty() const { return TargetExtTypes.empty(); }
 
   DenseSet<const MDNode *> &getVisitedMetadata() { return VisitedMetadata; }
 

@@ -115,9 +115,12 @@ void TypeFinder::incorporateType(Type *Ty) {
     Ty = TypeWorklist.pop_back_val();
 
     // If this is a structure or opaque type, add a name for the type.
-    if (StructType *STy = dyn_cast<StructType>(Ty))
+    if (StructType *STy = dyn_cast<StructType>(Ty)) {
       if (!OnlyNamed || STy->hasName())
         StructTypes.push_back(STy);
+    } else if (TargetExtType *TTy = dyn_cast<TargetExtType>(Ty)) {
+      TargetExtTypes.push_back(TTy);
+    }
 
     // Add all unvisited subtypes to worklist for processing
     for (Type *SubTy : llvm::reverse(Ty->subtypes()))

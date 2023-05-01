@@ -453,8 +453,8 @@ public:
   TypePrinting(const TypePrinting &) = delete;
   TypePrinting &operator=(const TypePrinting &) = delete;
 
-  /// The named types that are used by the current module.
-  TypeFinder &getNamedTypes();
+  /// The type finder for the current module.
+  TypeFinder &getTypeFinder();
 
   /// The numbered types, number to type mapping.
   std::vector<StructType *> &getNumberedTypes();
@@ -471,7 +471,7 @@ private:
   /// A module to process lazily when needed. Set to nullptr as soon as used.
   const Module *DeferredM;
 
-  TypeFinder NamedTypes;
+  TypeFinder TF;
 
   // The numbered types, along with their value.
   DenseMap<StructType *, unsigned> Type2Number;
@@ -481,9 +481,9 @@ private:
 
 } // end anonymous namespace
 
-TypeFinder &TypePrinting::getNamedTypes() {
+TypeFinder &TypePrinting::getTypeFinder() {
   incorporateTypes();
-  return NamedTypes;
+  return TF;
 }
 
 std::vector<StructType *> &TypePrinting::getNumberedTypes() {
@@ -506,22 +506,22 @@ std::vector<StructType *> &TypePrinting::getNumberedTypes() {
 
 bool TypePrinting::empty() {
   incorporateTypes();
-  return NamedTypes.empty() && Type2Number.empty();
+  return TF.structs_empty() && Type2Number.empty();
 }
 
 void TypePrinting::incorporateTypes() {
   if (!DeferredM)
     return;
 
-  NamedTypes.run(*DeferredM, false);
+  TF.run(*DeferredM, false);
   DeferredM = nullptr;
 
   // The list of struct types we got back includes all the struct types, split
   // the unnamed ones out to a numbering and remove the anonymous structs.
   unsigned NextNumber = 0;
 
-  std::vector<StructType *>::iterator NextToUse = NamedTypes.begin();
-  for (StructType *STy : NamedTypes) {
+  std::vector<StructType *>::iterator NextToUse = TF.structs_begin();
+  for (StructType *STy : TF.structs()) {
     // Ignore anonymous types.
     if (STy->isLiteral())
       continue;
@@ -532,7 +532,7 @@ void TypePrinting::incorporateTypes() {
       *NextToUse++ = STy;
   }
 
-  NamedTypes.erase(NextToUse, NamedTypes.end());
+  TF.structs_erase(NextToUse, TF.structs_end());
 }
 
 /// Write the specified type to the specified raw_ostream, making use of type
@@ -3755,8 +3755,8 @@ void AssemblyWriter::printTypeIdentities() {
     Out << '\n';
   }
 
-  auto &NamedTypes = TypePrinter.getNamedTypes();
-  for (StructType *NamedType : NamedTypes) {
+  auto &TF = TypePrinter.getTypeFinder();
+  for (StructType *NamedType : TF.structs()) {
     PrintLLVMName(Out, NamedType->getName(), LocalPrefix);
     Out << " = type ";
 

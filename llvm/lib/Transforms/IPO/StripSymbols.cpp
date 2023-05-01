@@ -85,7 +85,7 @@ static void StripTypeNames(Module &M, bool PreserveDbgInfo) {
   TypeFinder StructTypes;
   StructTypes.run(M, false);
 
-  for (StructType *STy : StructTypes) {
+  for (StructType *STy : StructTypes.structs()) {
     if (STy->isLiteral() || STy->getName().empty()) continue;
 
     if (PreserveDbgInfo && STy->getName().startswith("llvm.dbg"))

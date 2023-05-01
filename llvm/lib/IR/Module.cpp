@@ -470,7 +470,7 @@ std::vector<StructType *> Module::getIdentifiedStructTypes() const {
   std::vector<StructType *> Ret;
   TypeFinder SrcStructTypes;
   SrcStructTypes.run(*this, true);
-  Ret.assign(SrcStructTypes.begin(), SrcStructTypes.end());
+  Ret.assign(SrcStructTypes.structs_begin(), SrcStructTypes.structs_end());
   return Ret;
 }
 

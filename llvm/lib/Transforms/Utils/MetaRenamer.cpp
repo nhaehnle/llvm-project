@@ -165,7 +165,7 @@ void MetaRename(Module &M,
   // Rename all struct types
   TypeFinder StructTypes;
   StructTypes.run(M, true);
-  for (StructType *STy : StructTypes) {
+  for (StructType *STy : StructTypes.structs()) {
     StringRef Name = STy->getName();
     if (STy->isLiteral() || Name.empty() ||
         IsNameExcluded(Name, ExcludedStructsPrefixes))
