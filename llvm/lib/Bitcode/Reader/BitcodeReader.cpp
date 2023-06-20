@@ -56,6 +56,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/StructuredData.h"
+#include "llvm/IR/TargetExtType.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
@@ -564,6 +566,7 @@ public:
 
 class BitcodeReader : public BitcodeReaderBase, public GVMaterializer {
   LLVMContext &Context;
+  sdata::SymbolTableLockGuard SdataSymbols;
   Module *TheModule = nullptr;
   // Next offset to start scanning for lazy parsing of function bodies.
   uint64_t NextUnreadBit = 0;
@@ -858,6 +861,10 @@ private:
       DenseMap<Function *, uint64_t>::iterator DeferredFunctionInfoIterator);
 
   SyncScope::ID getDecodedSyncScopeID(unsigned Val);
+
+  Error decodeStructuredData(
+      ArrayRef<uint64_t> &Tail,
+      function_ref<Error(sdata::Symbol, sdata::Value)> ParseField);
 };
 
 /// Class to manage reading and parsing function summary index bitcode
@@ -1321,6 +1328,46 @@ static void upgradeDLLImportExportLinkage(GlobalValue *GV, unsigned Val) {
   case 5: GV->setDLLStorageClass(GlobalValue::DLLImportStorageClass); break;
   case 6: GV->setDLLStorageClass(GlobalValue::DLLExportStorageClass); break;
   }
+}
+
+Error BitcodeReader::decodeStructuredData(
+    ArrayRef<uint64_t> &Tail,
+    function_ref<Error(sdata::Symbol, sdata::Value)> ParseField) {
+  if (Tail.empty())
+    return error("missing sdata field count");
+
+  uint64_t NumFields = Tail[0];
+  Tail = Tail.drop_front(1);
+
+  for (uint64_t i = 0; i != NumFields; ++i) {
+    if (Tail.size() < 4)
+      return error("incomplete sdata field");
+
+    auto K = SdataSymbols.getSymbol(Context,
+                                    Strtab.slice(Tail[0], Tail[0] + Tail[1]));
+    Tail = Tail.drop_front(2);
+
+    sdata::Value V;
+    if (Tail[0] > bitc::SDATA_INT_BASE) {
+      unsigned NumBits = Tail[0] - bitc::SDATA_INT_BASE;
+      unsigned NumWords = divideCeil(NumBits, 64);
+      if (Tail.size() <= NumWords)
+        return error("incomplete sdata int value");
+
+      V = APInt(NumBits, Tail.slice(1, NumWords));
+      Tail = Tail.drop_front(1 + NumWords);
+    } else if (Tail[0] == bitc::SDATA_TYPE) {
+      V = getTypeByID(Tail[1]);
+      Tail = Tail.drop_front(2);
+    } else {
+      return error("bad sdata value type: " + Twine(Tail[0]));
+    }
+
+    if (Error Err = ParseField(K, V))
+      return Err;
+  }
+
+  return Error::success();
 }
 
 Type *BitcodeReader::getTypeByID(unsigned ID) {
@@ -2502,7 +2549,10 @@ Error BitcodeReader::parseTypeTableBody() {
       ResultTy = Res;
       break;
     }
+    case bitc::TYPE_CODE_TARGET_TYPE_OLD:
     case bitc::TYPE_CODE_TARGET_TYPE: { // TARGET_TYPE: [NumTy, Tys..., Ints...]
+      bool IsOld = MaybeRecord.get() == bitc::TYPE_CODE_TARGET_TYPE_OLD;
+
       if (Record.size() < 1)
         return error("Invalid target extension type record");
 
@@ -2522,12 +2572,39 @@ Error BitcodeReader::parseTypeTableBody() {
           return error("Invalid type");
       }
 
-      for (unsigned i = NumTys + 1, e = Record.size(); i < e; i++) {
-        if (Record[i] > UINT_MAX)
-          return error("Integer parameter too large");
-        IntParams.push_back(Record[i]);
+      ArrayRef<uint64_t> Tail = ArrayRef(Record).drop_front(NumTys + 1);
+      unsigned NumInts;
+
+      if (IsOld) {
+        NumInts = Tail.size();
+      } else {
+        NumInts = Tail[0];
+        Tail = Tail.drop_front(1);
       }
-      ResultTy = TargetExtType::get(Context, TypeName, TypeParams, IntParams);
+
+      for (uint64_t Val : Tail.take_front(NumInts)) {
+        if (Val > UINT_MAX)
+          return error("Integer parameter too large");
+        IntParams.push_back(Val);
+      }
+
+      Tail = Tail.drop_front(NumInts);
+
+      TargetTypeInfoDeserialize D(Context, TypeName, TypeParams, IntParams);
+
+      if (!IsOld) {
+        if (Error Err = decodeStructuredData(
+                Tail, [&](sdata::Symbol K, sdata::Value V) {
+                  return D.parseField(K, V);
+                }))
+          return Err;
+      }
+
+      auto Result = D.finish();
+      if (Error Err = Result.takeError())
+        return Err;
+
+      ResultTy = Result.get();
       TypeName.clear();
       break;
     }

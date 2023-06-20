@@ -20,6 +20,7 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMRemarkStreamer.h"
+#include "llvm/IR/TargetExtType.h"
 #include "llvm/Remarks/RemarkStreamer.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -103,6 +104,33 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
   assert(SystemSSID == SyncScope::System &&
          "system synchronization scope ID drifted!");
   (void)SystemSSID;
+
+  TargetTypeInfoDeserialize::registerSymbols();
+
+  static const auto SpirvTypes =
+      TargetExtTypeClass("spirv.", true)
+          .setGetLayoutType([](TargetExtType *T) -> Type * {
+            return Type::getInt8PtrTy(T->getContext(), 0);
+          })
+          .setGetProperties([](TargetExtType *T) -> uint64_t {
+            return TargetExtType::HasZeroInit | TargetExtType::CanBeGlobal;
+          });
+  registerTargetExtTypeClass(&SpirvTypes);
+
+  static const auto Aarch64SVCount =
+      TargetExtTypeClass("aarch64.svcount")
+          .setGetLayoutType([](TargetExtType *T) -> Type * {
+            return ScalableVectorType::get(Type::getInt1Ty(T->getContext()),
+                                           16);
+          })
+          .setVerifier([](TargetExtType *T, raw_ostream &Errs) -> bool {
+            if (T->getNumTypeParameters() || T->getNumIntParameters()) {
+              Errs << "aarch64.svcount cannot have parameters\n";
+              return false;
+            }
+            return true;
+          });
+  registerTargetExtTypeClass(&Aarch64SVCount);
 }
 
 LLVMContext::~LLVMContext() { delete pImpl; }
@@ -374,4 +402,27 @@ void LLVMContext::setOpaquePointers(bool Enable) const {
 
 bool LLVMContext::supportsTypedPointers() const {
   return !pImpl->getOpaquePointers();
+}
+
+void LLVMContext::registerTargetExtTypeClass(
+    const TargetExtTypeClass *TypeClass) {
+  assert(!pImpl->TargetExtTypeClassesFrozen);
+  assert(!TypeClass->Name.empty());
+  assert(TypeClass->NameIsPrefix == StringRef(TypeClass->Name).ends_with("."));
+
+  pImpl->TargetExtTypeClasses.push_back(TypeClass);
+}
+
+const TargetExtTypeClass *
+LLVMContext::findTargetExtTypeClass(StringRef Name) const {
+  pImpl->TargetExtTypeClassesFrozen = true;
+
+  for (const TargetExtTypeClass *Class : pImpl->TargetExtTypeClasses) {
+    if ((Class->NameIsPrefix && Name.starts_with(Class->Name)) ||
+        (!Class->NameIsPrefix && Name == Class->Name)) {
+      return Class;
+    }
+  }
+
+  return nullptr;
 }

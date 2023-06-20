@@ -3793,13 +3793,6 @@ Target extension types have a name and optional type or integer parameters. The
 meanings of name and parameters are defined by the target. When being defined in
 LLVM IR, all of the type parameters must precede all of the integer parameters.
 
-Specific target extension types are registered with LLVM as having specific
-properties. These properties can be used to restrict the type from appearing in
-certain contexts, such as being the type of a global variable or having a
-``zeroinitializer`` constant be valid. A complete list of type properties may be
-found in the documentation for ``llvm::TargetExtType::Property`` (`doxygen
-<https://llvm.org/doxygen/classllvm_1_1TargetExtType.html>`_).
-
 :Syntax:
 
 .. code-block:: llvm
@@ -3810,6 +3803,42 @@ found in the documentation for ``llvm::TargetExtType::Property`` (`doxygen
       target("label", 0, 1, 2)
       target("label", void, i32, 0, 1, 2)
 
+Target extension types can be registered with LLVM as having specific
+properties. The following properties are defined:
+
+- ``layout``: The underlying type to be used to determine memory layouts, e.g.
+  store size. Defaults to ``void``, in which case the type cannot be used in
+  a memory context (e.g., the type cannot be used with ``alloca``).
+- ``hasZeroInit``: Boolean property indicating whether the ``zeroinitializer``
+  constant is valid.
+- ``canBeGlobal``: Boolean property indicating whether global variables of this
+  type are valid.
+
+The registration of these properties may occur at runtime by defining an
+``llvm::TargetExtTypeClass`` object and registering it with the ``LLVMContext``.
+Some target extension types are registered in this way in all ``LLVMContext``s.
+
+The properties can also be set with a special ``type`` block of
+:ref:`structured data <structured_data>` at the beginning of the module file.
+
+:Syntax:
+
+::
+
+      type <target type> <structured data>
+
+:Example:
+
+.. code-block:: llvm
+  
+      type target("mytype") {
+        layout: type i8,
+        hasZeroInit: i1 true,
+      }
+
+Properties apply only to the exact given target type. As an example,
+``target("mytype")`` is a different type than ``target("mytype", i32)``, and so
+the example properties above only apply to the former.
 
 .. _t_vector:
 

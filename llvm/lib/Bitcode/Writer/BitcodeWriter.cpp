@@ -52,6 +52,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/StructuredData.h"
+#include "llvm/IR/TargetExtType.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/UseListOrder.h"
 #include "llvm/IR/Value.h"
@@ -210,6 +212,11 @@ public:
 
 protected:
   void writePerModuleGlobalValueSummary();
+
+  void encodeSymbol(SmallVectorImpl<uint64_t> &Vals, sdata::Symbol S);
+  void
+  encodeStructuredData(SmallVectorImpl<uint64_t> &Vals,
+                       ArrayRef<std::pair<sdata::Symbol, sdata::Value>> Fields);
 
 private:
   void writePerModuleFunctionSummaryRecord(
@@ -1057,8 +1064,12 @@ void ModuleBitcodeWriter::writeTypeTable() {
       TypeVals.push_back(TET->getNumTypeParameters());
       for (Type *InnerTy : TET->type_params())
         TypeVals.push_back(VE.getTypeID(InnerTy));
+      TypeVals.push_back(TET->getNumIntParameters());
       for (unsigned IntParam : TET->int_params())
         TypeVals.push_back(IntParam);
+
+      auto Fields = serializeTargetTypeInfo(TET, /*UseSchema=*/false);
+      encodeStructuredData(TypeVals, Fields);
       break;
     }
     case Type::TypedPointerTyID:
@@ -3964,6 +3975,37 @@ static void writeFunctionHeapProfileRecords(
     Stream.EmitRecord(PerModule ? bitc::FS_PERMODULE_ALLOC_INFO
                                 : bitc::FS_COMBINED_ALLOC_INFO,
                       Record, AllocAbbrev);
+  }
+}
+
+void ModuleBitcodeWriterBase::encodeSymbol(SmallVectorImpl<uint64_t> &Vals,
+                                           sdata::Symbol S) {
+  StringRef Str = S.getAsString();
+  Vals.push_back(StrtabBuilder.add(Str));
+  Vals.push_back(Str.size());
+}
+
+void ModuleBitcodeWriterBase::encodeStructuredData(
+    SmallVectorImpl<uint64_t> &Vals,
+    ArrayRef<std::pair<sdata::Symbol, sdata::Value>> Fields) {
+  Vals.push_back(Fields.size());
+  for (const auto &[Key, Value] : Fields) {
+    encodeSymbol(Vals, Key);
+
+    if (Value.isAPInt()) {
+      const APInt &V = Value.getAPInt();
+      Vals.push_back(bitc::SDATA_INT_BASE + V.getBitWidth());
+
+      unsigned NumWords = divideCeil(V.getBitWidth(), 64);
+      const uint64_t *RawData = V.getRawData();
+      Vals.insert(Vals.end(), RawData, RawData + NumWords);
+    } else if (Value.isType()) {
+      Type *T = Value.getType();
+      Vals.push_back(bitc::SDATA_TYPE);
+      Vals.push_back(VE.getTypeID(T));
+    } else {
+      llvm_unreachable("sdata value type not implemented");
+    }
   }
 }
 

@@ -1611,6 +1611,9 @@ public:
   /// clients which do use GC.
   DenseMap<const Function *, std::string> GCNames;
 
+  SmallVector<const TargetExtTypeClass *> TargetExtTypeClasses;
+  bool TargetExtTypeClassesFrozen = false;
+
   /// Flag to indicate if Value (other than GlobalValue) retains their name or
   /// not.
   bool DiscardValueNames = false;

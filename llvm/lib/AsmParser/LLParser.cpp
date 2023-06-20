@@ -13,8 +13,8 @@
 #include "llvm/AsmParser/LLParser.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/AsmParser/LLToken.h"
 #include "llvm/AsmParser/SlotMapping.h"
@@ -38,6 +38,7 @@
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/TargetExtType.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/Support/Casting.h"
@@ -442,6 +443,10 @@ bool LLParser::parseTopLevelEntities() {
       break;
     case lltok::kw_uselistorder_bb:
       if (parseUseListOrderBB())
+        return true;
+      break;
+    case lltok::kw_type:
+      if (parseTypeInfo())
         return true;
       break;
     }
@@ -3197,9 +3202,10 @@ bool LLParser::parseArrayVectorType(Type *&Result, bool IsVector) {
   return false;
 }
 
-/// parseTargetExtType - handle target extension type syntax
+/// parseTargetExtTypeImpl - handle target extension type syntax
 ///   TargetExtType
-///     ::= 'target' '(' STRINGCONSTANT TargetExtTypeParams TargetExtIntParams ')'
+///     ::= 'target' '(' STRINGCONSTANT TargetExtTypeParams TargetExtIntParams
+///         ')'
 ///
 ///   TargetExtTypeParams
 ///     ::= /*empty*/
@@ -3208,20 +3214,20 @@ bool LLParser::parseArrayVectorType(Type *&Result, bool IsVector) {
 ///   TargetExtIntParams
 ///     ::= /*empty*/
 ///     ::= ',' uint32 TargetExtIntParams
-bool LLParser::parseTargetExtType(Type *&Result) {
+bool LLParser::parseTargetExtTypeImpl(std::string &Name,
+                                      SmallVectorImpl<Type *> &TypeParams,
+                                      SmallVectorImpl<unsigned> &IntParams) {
+  assert(Lex.getKind() == lltok::kw_target);
   Lex.Lex(); // Eat the 'target' keyword.
 
   // Get the mandatory type name.
-  std::string TypeName;
   if (parseToken(lltok::lparen, "expected '(' in target extension type") ||
-      parseStringConstant(TypeName))
+      parseStringConstant(Name))
     return true;
 
   // Parse all of the integer and type parameters at the same time; the use of
   // SeenInt will allow us to catch cases where type parameters follow integer
   // parameters.
-  SmallVector<Type *> TypeParams;
-  SmallVector<unsigned> IntParams;
   bool SeenInt = false;
   while (Lex.getKind() == lltok::comma) {
     Lex.Lex(); // Eat the comma.
@@ -3247,7 +3253,23 @@ bool LLParser::parseTargetExtType(Type *&Result) {
   if (parseToken(lltok::rparen, "expected ')' in target extension type"))
     return true;
 
-  Result = TargetExtType::get(Context, TypeName, TypeParams, IntParams);
+  return false;
+}
+
+bool LLParser::parseTargetExtType(Type *&Result) {
+  auto Loc = Lex.getLoc();
+  std::string TypeName;
+  SmallVector<Type *> TypeParams;
+  SmallVector<unsigned> IntParams;
+  if (parseTargetExtTypeImpl(TypeName, TypeParams, IntParams))
+    return true;
+
+  std::string ErrStr;
+  raw_string_ostream Err(ErrStr);
+  Result =
+      TargetExtType::getChecked(Context, TypeName, TypeParams, IntParams, Err);
+  if (!Result)
+    return error(Loc, Twine("target type failed validation:\n") + ErrStr);
   return false;
 }
 
@@ -4240,7 +4262,7 @@ bool LLParser::parseStructuredData(
           Lex.Lex();
           break;
         default:
-          return tokError("expected an integer value");
+          return tokError("expected an integer constant");
         }
 
         break;
@@ -4250,7 +4272,7 @@ bool LLParser::parseStructuredData(
     }
 
     default:
-      return tokError("expected structured data value");
+      return tokError("expected the type of a structured data value");
     }
 
     if (ParseField(KeyLoc, Key, ValueLoc, V))
@@ -10170,5 +10192,34 @@ bool LLParser::parseOptionalCallsites(std::vector<CallsiteInfo> &Callsites) {
   if (parseToken(lltok::rparen, "expected ')' in callsites"))
     return true;
 
+  return false;
+}
+
+bool LLParser::parseTypeInfo() {
+  LocTy KwLoc = Lex.getLoc();
+  assert(Lex.getKind() == lltok::kw_type);
+  Lex.Lex();
+
+  if (Lex.getKind() != lltok::kw_target)
+    return tokError("expected 'target' type");
+
+  std::string TypeName;
+  SmallVector<Type *> TypeParams;
+  SmallVector<unsigned> IntParams;
+  if (parseTargetExtTypeImpl(TypeName, TypeParams, IntParams))
+    return true;
+
+  TargetTypeInfoDeserialize D(Context, TypeName, TypeParams, IntParams);
+
+  if (parseStructuredData(
+          [&](LocTy KeyLoc, sdata::Symbol K, LocTy ValueLoc, sdata::Value V) {
+            if (Error Err = D.parseField(K, V))
+              return error(KeyLoc, toString(std::move(Err)));
+            return false;
+          }))
+    return true;
+
+  if (Error Err = D.finish().takeError())
+    return error(KwLoc, toString(std::move(Err)));
   return false;
 }

@@ -552,6 +552,30 @@ LLVM IR is defined with the following blocks:
 
 * 23 --- `STRTAB_BLOCK`_ --- The bitcode file's string table.
 
+Structured Data
+^^^^^^^^^^^^^^^
+
+Structured data, i.e., sequences of (key, value) pairs, is embedded into some
+records by encoding it into a sequence of 64-bit integers.
+
+The encoding begins with the number of pairs, followed by the encoding of each
+pair. Each (key, value) pair is encoded as a structured data symbol encoding
+the key followed by a type discriminator indicating the type of the value,
+followed by an encoding of the value itself.
+
+The following types discriminators are defined:
+
+* TYPE (1) --- encoded as a single 64-bit integer
+
+* INT (15+n) --- an n-bit integer, encoded as a little-endian sequence of
+  64-bit words
+
+The encoding of the integer type discriminator is chosen such that:
+
+* Encoding values 2 .. 15 are available for future extension
+* Type discriminators up to `i16` are encoded in unabbreviated records as a
+  single vbr6 chunk
+
 .. _MODULE_BLOCK:
 
 MODULE_BLOCK Contents
@@ -1338,20 +1362,40 @@ TYPE_CODE_X86_AMX Record
 
 The ``X86_AMX`` record (code 24) adds an ``x86_amx`` type to the type table.
 
-TYPE_CODE_TARGET_TYPE Record
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TYPE_CODE_TARGET_TYPE_OLD Record
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-``[TARGET_TYPE, num_tys, ...ty_params..., ...int_params... ]``
+``[TARGET_TYPE_OLD, num_tys, ...ty_params..., ...int_params... ]``
 
-The ``TARGET_TYPE`` record (code 26) adds a target extension type to the type
-table, with a name defined by a previously encountered ``STRUCT_NAME`` record.
-The operand fields are
+The ``TARGET_TYPE_OLD`` record (code 26) adds a target extension type to the
+type table, with a name defined by a previously encountered ``STRUCT_NAME``
+record. The operand fields are
 
 * *num_tys*: The number of parameters that are types (as opposed to integers)
 
 * *ty_params*: Type indices that represent type parameters
 
 * *int_params*: Numbers that correspond to the integer parameters.
+
+TYPE_CODE_TARGET_TYPE Record
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``[TARGET_TYPE, num_tys, ...ty_params..., num_ints, ...int_params...,
+   structured data ]``
+
+The ``TARGET_TYPE`` record (code 27) adds a target extension type to the
+type table, with a name defined by a previously encountered ``STRUCT_NAME``
+record. The operand fields are
+
+* *num_tys*: The number of parameters that are types (as opposed to integers)
+
+* *ty_params*: Type indices that represent type parameters
+
+* *num_ints*: The number of parameters that are integers
+
+* *int_params*: Numbers that correspond to the integer parameters.
+
+* The structured data is deserialized into target type info
 
 .. _CONSTANTS_BLOCK:
 

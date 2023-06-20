@@ -59,6 +59,7 @@
 #include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/StructuredData.h"
+#include "llvm/IR/TargetExtType.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/TypeFinder.h"
 #include "llvm/IR/TypedPointerType.h"
@@ -507,7 +508,7 @@ std::vector<StructType *> &TypePrinting::getNumberedTypes() {
 
 bool TypePrinting::empty() {
   incorporateTypes();
-  return TF.structs_empty() && Type2Number.empty();
+  return TF.structs_empty() && Type2Number.empty() && TF.target_exts_empty();
 }
 
 void TypePrinting::incorporateTypes() {
@@ -3789,6 +3790,20 @@ void AssemblyWriter::printTypeIdentities() {
     // Make sure we print out at least one level of the type structure, so
     // that we do not get %FILE = type %FILE
     TypePrinter.printStructBody(NamedType, Out);
+    Out << '\n';
+  }
+
+  for (TargetExtType *TTy : TF.target_exts()) {
+    auto Fields = serializeTargetTypeInfo(TTy, /*UseSchema=*/false);
+    if (Fields.empty())
+      continue;
+
+    Out << "type ";
+    TypePrinter.print(TTy, Out);
+    Out << ' ';
+
+    AsmWriterContext WriterCtx(&TypePrinter, &Machine, TheModule);
+    printStructuredData(Out, Fields, WriterCtx);
     Out << '\n';
   }
 }

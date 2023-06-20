@@ -34,6 +34,7 @@ class OptPassGate;
 template <typename T> class SmallVectorImpl;
 template <typename T> class StringMapEntry;
 class StringRef;
+class TargetExtTypeClass;
 class Twine;
 class LLVMRemarkStreamer;
 
@@ -319,6 +320,12 @@ public:
 
   /// Whether typed pointers are supported. If false, all pointers are opaque.
   bool supportsTypedPointers() const;
+
+  /// Register a custom extension type class.
+  void registerTargetExtTypeClass(const TargetExtTypeClass *TypeClass);
+
+  /// Find an extension type class.
+  const TargetExtTypeClass *findTargetExtTypeClass(StringRef Name) const;
 
 private:
   // Module needs access to the add/removeModule methods.

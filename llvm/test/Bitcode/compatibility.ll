@@ -18,6 +18,17 @@ target triple = "x86_64-apple-macosx10.10.0"
 module asm "beep boop"
 ; CHECK: module asm "beep boop"
 
+type target("foo", i32, 5) {
+  layout: type i32,
+  canBeGlobal: i1 true,
+  hasZeroInit: i1 true,
+}
+; CHECK: type target("foo", i32, 5) {
+; CHECK:   layout: type i32,
+; CHECK:   canBeGlobal: i1 true,
+; CHECK:   hasZeroInit: i1 true,
+; CHECK: }
+
 ;; Comdats
 $comdat.any = comdat any
 ; CHECK: $comdat.any = comdat any
@@ -1122,6 +1133,9 @@ define void @typesystem() {
 
 declare void @llvm.token(token)
 ; CHECK: declare void @llvm.token(token)
+
+declare target("foo", i32, 5) @target_ext_type(target("bar"))
+; CHECK: declare target("foo", i32, 5) @target_ext_type(target("bar"))
 
 ;; Inline Assembler Expressions
 define void @inlineasm(i32 %arg) {

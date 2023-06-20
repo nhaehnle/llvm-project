@@ -938,6 +938,9 @@ void ValueEnumerator::EnumerateType(Type *Ty) {
   for (Type *SubTy : Ty->subtypes())
     EnumerateType(SubTy);
 
+  if (auto *ExtTy = dyn_cast<TargetExtType>(Ty))
+    EnumerateType(ExtTy->getLayoutType());
+
   // Refresh the TypeID pointer in case the table rehashed.
   TypeID = &TypeMap[Ty];
 

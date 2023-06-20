@@ -20,6 +20,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/TargetExtType.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/TypeSize.h"
@@ -856,6 +857,120 @@ bool PointerType::isLoadableOrStorableType(Type *ElemTy) {
 //                       TargetExtType Implementation
 //===----------------------------------------------------------------------===//
 
+namespace {
+
+struct TargetTypeInfoKeys {
+  sdata::RegisterSymbol Layout{"layout"};
+  sdata::RegisterSymbol HasZeroInit{"hasZeroInit"};
+  sdata::RegisterSymbol CanBeGlobal{"canBeGlobal"};
+
+  static const TargetTypeInfoKeys &get() {
+    static const TargetTypeInfoKeys TTIK;
+    return TTIK;
+  }
+};
+
+} // anonymous namespace
+
+TargetTypeInfoDeserialize::TargetTypeInfoDeserialize(LLVMContext &Ctx,
+                                                     StringRef Name,
+                                                     ArrayRef<Type *> Types,
+                                                     ArrayRef<unsigned> Ints)
+    : Ctx(Ctx), Name(Name), Types(Types), Ints(Ints) {
+  LayoutType = Type::getVoidTy(Ctx);
+}
+
+void TargetTypeInfoDeserialize::registerSymbols() {
+  (void)TargetTypeInfoKeys::get();
+}
+
+Error TargetTypeInfoDeserialize::parseField(sdata::Symbol K, sdata::Value V) {
+  const auto &TTIK = TargetTypeInfoKeys::get();
+
+  if (K == TTIK.Layout) {
+    if (!V.isType())
+      return sdata::makeDeserializeError("expected a type");
+    LayoutType = V.getType();
+    return Error::success();
+  }
+
+  struct {
+    const sdata::RegisterSymbol &Symbol;
+    uint64_t Value;
+  } BoolFields[] = {
+      {TTIK.CanBeGlobal, TargetExtType::CanBeGlobal},
+      {TTIK.HasZeroInit, TargetExtType::HasZeroInit},
+  };
+
+  for (const auto &Field : BoolFields) {
+    if (K == Field.Symbol) {
+      if (!V.isBool())
+        return sdata::makeDeserializeError("expected a boolean");
+      if (V.getBool())
+        Properties |= Field.Value;
+      else
+        Properties &= Field.Value;
+      return Error::success();
+    }
+  }
+
+  return sdata::makeDeserializeError(
+      "expected 'layout', 'canBeGlobal', or 'hasZeroInit'");
+}
+
+Expected<TargetExtType *> TargetTypeInfoDeserialize::finish() {
+  auto GetResult = TargetExtType::getInternal(Ctx, Name, Types, Ints);
+  TargetExtType *T = GetResult.first;
+
+  if (GetResult.second) {
+    auto *Class = Ctx.findTargetExtTypeClass(Name);
+    if (Class) {
+      if (Class->Verifier) {
+        std::string ErrStr;
+        raw_string_ostream Errs(ErrStr);
+        if (!Class->Verifier(T, Errs))
+          return sdata::makeDeserializeError(Twine("invalid target type\n:") +
+                                             ErrStr);
+      }
+      GetResult.first->initFromClass(Class);
+    } else {
+      T->LayoutType = LayoutType;
+      T->Properties = Properties;
+    }
+  }
+
+  if (T->LayoutType != LayoutType)
+    return sdata::makeDeserializeError("target type has wrong layout type");
+  if (T->Properties != Properties)
+    return sdata::makeDeserializeError("target type has wrong properties");
+
+  return T;
+}
+
+SmallVector<std::pair<sdata::Symbol, sdata::Value>>
+llvm::serializeTargetTypeInfo(TargetExtType *Ty, bool UseSchema) {
+  const auto &TTIK = TargetTypeInfoKeys::get();
+  SmallVector<std::pair<sdata::Symbol, sdata::Value>> Fields;
+
+  if (UseSchema || !Ty->getLayoutType()->isVoidTy())
+    Fields.emplace_back(TTIK.Layout, Ty->getLayoutType());
+
+  struct {
+    const sdata::RegisterSymbol &Symbol;
+    TargetExtType::Property Value;
+  } BoolFields[] = {
+      {TTIK.CanBeGlobal, TargetExtType::CanBeGlobal},
+      {TTIK.HasZeroInit, TargetExtType::HasZeroInit},
+  };
+
+  for (const auto &Field : BoolFields) {
+    if (UseSchema || Ty->hasProperty(Field.Value))
+      Fields.emplace_back(Field.Symbol, Ty->hasProperty(Field.Value));
+  }
+
+  return Fields;
+}
+
 TargetExtType::TargetExtType(LLVMContext &C, StringRef Name,
                              ArrayRef<Type *> Types, ArrayRef<unsigned> Ints)
     : Type(C, TargetExtTyID), Name(C.pImpl->Saver.save(Name)) {
@@ -877,60 +992,82 @@ TargetExtType::TargetExtType(LLVMContext &C, StringRef Name,
 TargetExtType *TargetExtType::get(LLVMContext &C, StringRef Name,
                                   ArrayRef<Type *> Types,
                                   ArrayRef<unsigned> Ints) {
+  auto Result = getInternal(C, Name, Types, Ints);
+  if (Result.second) {
+    const auto *Class = C.findTargetExtTypeClass(Name);
+    if (Class)
+      Result.first->initFromClass(Class);
+    else
+      Result.first->LayoutType = Type::getVoidTy(C);
+  }
+  return Result.first;
+}
+
+TargetExtType *TargetExtType::getChecked(LLVMContext &C, StringRef Name,
+                                         ArrayRef<Type *> Types,
+                                         ArrayRef<unsigned> Ints,
+                                         raw_ostream &Errs) {
+  auto Result = getInternal(C, Name, Types, Ints);
+  if (Result.second) {
+    const auto *Class = C.findTargetExtTypeClass(Name);
+    if (Class) {
+      if (Class->Verifier) {
+        if (!Class->Verifier(Result.first, Errs))
+          return nullptr;
+      }
+      Result.first->initFromClass(Class);
+    } else {
+      Result.first->LayoutType = Type::getVoidTy(C);
+    }
+  }
+  return Result.first;
+}
+
+TargetExtType *TargetExtType::get(LLVMContext &C,
+                                  const TargetExtTypeClass *Class,
+                                  StringRef Name, ArrayRef<Type *> Types,
+                                  ArrayRef<unsigned> Ints) {
+  assert(Name.starts_with(Class->Name));
+  assert(Class->NameIsPrefix || Class->Name.size() == Name.size());
+
+  auto Result = getInternal(C, Name, Types, Ints);
+  if (Result.second)
+    Result.first->initFromClass(Class);
+  return Result.first;
+}
+
+void TargetExtType::initFromClass(const TargetExtTypeClass *Class) {
+  assert(!Class->Verifier || Class->Verifier(this, llvm::errs()));
+  if (Class->GetLayoutType)
+    LayoutType = Class->GetLayoutType(this);
+  else
+    LayoutType = Type::getVoidTy(getContext());
+  if (Class->GetProperties)
+    Properties = Class->GetProperties(this);
+}
+
+std::pair<TargetExtType *, bool>
+TargetExtType::getInternal(LLVMContext &C, StringRef Name,
+                           ArrayRef<Type *> Types, ArrayRef<unsigned> Ints) {
+  assert(!Name.ends_with("."));
   const TargetExtTypeKeyInfo::KeyTy Key(Name, Types, Ints);
-  TargetExtType *TT;
+
   // Since we only want to allocate a fresh target type in case none is found
   // and we don't want to perform two lookups (one for checking if existent and
   // one for inserting the newly allocated one), here we instead lookup based on
   // Key and update the reference to the target type in-place to a newly
   // allocated one if not found.
   auto Insertion = C.pImpl->TargetExtTypes.insert_as(nullptr, Key);
-  if (Insertion.second) {
-    // The target type was not found. Allocate one and update TargetExtTypes
-    // in-place.
-    TT = (TargetExtType *)C.pImpl->Alloc.Allocate(
-        sizeof(TargetExtType) + sizeof(Type *) * Types.size() +
-            sizeof(unsigned) * Ints.size(),
-        alignof(TargetExtType));
-    new (TT) TargetExtType(C, Name, Types, Ints);
-    *Insertion.first = TT;
-  } else {
-    // The target type was found. Just return it.
-    TT = *Insertion.first;
-  }
-  return TT;
-}
+  if (!Insertion.second)
+    return {*Insertion.first, false};
 
-namespace {
-struct TargetTypeInfo {
-  Type *LayoutType;
-  uint64_t Properties;
-
-  template <typename... ArgTys>
-  TargetTypeInfo(Type *LayoutType, ArgTys... Properties)
-      : LayoutType(LayoutType), Properties((0 | ... | Properties)) {}
-};
-} // anonymous namespace
-
-static TargetTypeInfo getTargetTypeInfo(const TargetExtType *Ty) {
-  LLVMContext &C = Ty->getContext();
-  StringRef Name = Ty->getName();
-  if (Name.startswith("spirv."))
-    return TargetTypeInfo(Type::getInt8PtrTy(C, 0), TargetExtType::HasZeroInit,
-                          TargetExtType::CanBeGlobal);
-
-  // Opaque types in the AArch64 name space.
-  if (Name == "aarch64.svcount")
-    return TargetTypeInfo(ScalableVectorType::get(Type::getInt1Ty(C), 16));
-
-  return TargetTypeInfo(Type::getVoidTy(C));
-}
-
-Type *TargetExtType::getLayoutType() const {
-  return getTargetTypeInfo(this).LayoutType;
-}
-
-bool TargetExtType::hasProperty(Property Prop) const {
-  uint64_t Properties = getTargetTypeInfo(this).Properties;
-  return (Properties & Prop) == Prop;
+  // The target type was not found. Allocate one and update TargetExtTypes
+  // in-place.
+  auto *TT = (TargetExtType *)C.pImpl->Alloc.Allocate(
+      sizeof(TargetExtType) + sizeof(Type *) * Types.size() +
+          sizeof(unsigned) * Ints.size(),
+      alignof(TargetExtType));
+  new (TT) TargetExtType(C, Name, Types, Ints);
+  *Insertion.first = TT;
+  return {TT, true};
 }

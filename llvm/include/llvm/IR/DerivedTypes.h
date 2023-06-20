@@ -32,6 +32,7 @@ namespace llvm {
 class Value;
 class APInt;
 class LLVMContext;
+class TargetExtTypeClass;
 
 /// Class to represent integer types. Note that this class is also used to
 /// represent the built-in integer types: Int1Ty, Int8Ty, Int16Ty, Int32Ty and
@@ -748,9 +749,18 @@ unsigned Type::getPointerAddressSpace() const {
 /// integer parameters. The exact meaning of any parameters is dependent on the
 /// target.
 class TargetExtType : public Type {
+  friend class TargetTypeInfoDeserialize;
+
   TargetExtType(LLVMContext &C, StringRef Name, ArrayRef<Type *> Types,
                 ArrayRef<unsigned> Ints);
+  static std::pair<TargetExtType *, bool> getInternal(LLVMContext &C,
+                                                      StringRef Name,
+                                                      ArrayRef<Type *> Types,
+                                                      ArrayRef<unsigned> Ints);
+  void initFromClass(const TargetExtTypeClass *Class);
 
+  Type *LayoutType = nullptr;
+  uint64_t Properties = 0;
   // These strings are ultimately owned by the context.
   StringRef Name;
   unsigned *IntParams;
@@ -762,6 +772,22 @@ public:
   /// Return a target extension type having the specified name and optional
   /// type and integer parameters.
   static TargetExtType *get(LLVMContext &Context, StringRef Name,
+                            ArrayRef<Type *> Types = std::nullopt,
+                            ArrayRef<unsigned> Ints = std::nullopt);
+
+  /// Return a target extension type having the specified name and optional
+  /// type and integer parameters, but also run the type through the verifier
+  /// of the corresponding type class, if any is registered, and return null
+  /// if verification fails.
+  static TargetExtType *getChecked(LLVMContext &Context, StringRef Name,
+                                   ArrayRef<Type *> Types = std::nullopt,
+                                   ArrayRef<unsigned> Ints = std::nullopt,
+                                   raw_ostream &Errs = llvm::errs());
+
+  /// Return a target extension type of a known type class, having the specified
+  /// name and optional type and integer parameters.
+  static TargetExtType *get(LLVMContext &Context,
+                            const TargetExtTypeClass *Class, StringRef Name,
                             ArrayRef<Type *> Types = std::nullopt,
                             ArrayRef<unsigned> Ints = std::nullopt);
 
@@ -802,13 +828,16 @@ public:
   };
 
   /// Returns true if the target extension type contains the given property.
-  bool hasProperty(Property Prop) const;
+  bool hasProperty(Property Prop) const { return (Properties & Prop) == Prop; }
+
+  /// Returns the properties bit field.
+  uint64_t getProperties() const { return Properties; }
 
   /// Returns an underlying layout type for the target extension type. This
   /// type can be used to query size and alignment information, if it is
   /// appropriate (although note that the layout type may also be void). It is
   /// not legal to bitcast between this type and the layout type, however.
-  Type *getLayoutType() const;
+  Type *getLayoutType() const { return LayoutType; }
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast.
   static bool classof(const Type *T) { return T->getTypeID() == TargetExtTyID; }

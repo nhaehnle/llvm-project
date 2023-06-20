@@ -439,6 +439,9 @@ namespace llvm {
 
     bool parseArrayVectorType(Type *&Result, bool IsVector);
     bool parseFunctionType(Type *&Result);
+    bool parseTargetExtTypeImpl(std::string &Name,
+                                SmallVectorImpl<Type *> &TypeParams,
+                                SmallVectorImpl<unsigned> &IntParams);
     bool parseTargetExtType(Type *&Result);
 
     // Function Semantic Analysis.
@@ -647,6 +650,8 @@ namespace llvm {
     bool parseUseListOrderBB();
     bool parseUseListOrderIndexes(SmallVectorImpl<unsigned> &Indexes);
     bool sortUseListOrder(Value *V, ArrayRef<unsigned> Indexes, SMLoc Loc);
+
+    bool parseTypeInfo();
   };
 } // End llvm namespace
 
