@@ -4603,8 +4603,14 @@ Error BitcodeReader::parseBitcodeInto(Module *M, bool ShouldLazyLoadMetadata,
   MDCallbacks.GetContainedTypeID = [&](unsigned I, unsigned J) {
     return getContainedTypeID(I, J);
   };
+  MDCallbacks.DecodeStructuredData =
+      [&](ArrayRef<uint64_t> &Tail,
+          function_ref<Error(sdata::Symbol, sdata::Value)> ParseField) {
+        return decodeStructuredData(Tail, ParseField);
+      };
   MDCallbacks.MDType = Callbacks.MDType;
-  MDLoader = MetadataLoader(Stream, *M, ValueList, IsImporting, MDCallbacks);
+  MDLoader =
+      MetadataLoader(Stream, *M, ValueList, IsImporting, MDCallbacks, Strtab);
   return parseModule(0, ShouldLazyLoadMetadata, Callbacks);
 }
 

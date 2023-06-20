@@ -37,6 +37,7 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalIFunc.h"
@@ -373,6 +374,8 @@ private:
   void writeDIImportedEntity(const DIImportedEntity *N,
                              SmallVectorImpl<uint64_t> &Record,
                              unsigned Abbrev);
+  void writeExtMetadata(const ExtMetadata *N, SmallVectorImpl<uint64_t> &Record,
+                        unsigned Abbrev);
   unsigned createNamedMetadataAbbrev();
   void writeNamedMetadata(SmallVectorImpl<uint64_t> &Record);
   unsigned createMetadataStringsAbbrev();
@@ -2165,6 +2168,22 @@ void ModuleBitcodeWriter::writeDIImportedEntity(
   Record.push_back(VE.getMetadataOrNullID(N->getElements().get()));
 
   Stream.EmitRecord(bitc::METADATA_IMPORTED_ENTITY, Record, Abbrev);
+  Record.clear();
+}
+
+void ModuleBitcodeWriter::writeExtMetadata(const ExtMetadata *N,
+                                           SmallVectorImpl<uint64_t> &Record,
+                                           unsigned Abbrev) {
+  Record.push_back(N->isDistinct());
+
+  StringRef ClassName = N->getClassName();
+  Record.push_back(StrtabBuilder.add(ClassName));
+  Record.push_back(ClassName.size());
+
+  auto Fields = N->serialize(false);
+  encodeStructuredData(Record, Fields);
+
+  Stream.EmitRecord(bitc::METADATA_EXT_METADATA, Record, /*Abbrev=*/0);
   Record.clear();
 }
 

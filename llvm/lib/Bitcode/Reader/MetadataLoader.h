@@ -28,6 +28,10 @@ class Metadata;
 class Module;
 class Type;
 template <typename T> class ArrayRef;
+namespace sdata {
+class Symbol;
+class Value;
+} // namespace sdata
 
 typedef std::function<Type *(unsigned)> GetTypeByIDTy;
 
@@ -37,9 +41,14 @@ typedef std::function<void(Metadata **, unsigned, GetTypeByIDTy,
                            GetContainedTypeIDTy)>
     MDTypeCallbackTy;
 
+typedef std::function<Error(ArrayRef<uint64_t> &,
+                            function_ref<Error(sdata::Symbol, sdata::Value)>)>
+    DecodeStructuredDataTy;
+
 struct MetadataLoaderCallbacks {
   GetTypeByIDTy GetTypeByID;
   GetContainedTypeIDTy GetContainedTypeID;
+  DecodeStructuredDataTy DecodeStructuredData;
   std::optional<MDTypeCallbackTy> MDType;
 };
 
@@ -53,7 +62,7 @@ public:
   ~MetadataLoader();
   MetadataLoader(BitstreamCursor &Stream, Module &TheModule,
                  BitcodeReaderValueList &ValueList, bool IsImporting,
-                 MetadataLoaderCallbacks Callbacks);
+                 MetadataLoaderCallbacks Callbacks, StringRef Strtab);
   MetadataLoader &operator=(MetadataLoader &&);
   MetadataLoader(MetadataLoader &&);
 

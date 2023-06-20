@@ -31,6 +31,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -471,6 +472,8 @@ class MetadataLoader::MetadataLoaderImpl {
   /// True if metadata is being parsed for a module being ThinLTO imported.
   bool IsImporting = false;
 
+  StringRef Strtab;
+
   Error parseOneMetadata(SmallVectorImpl<uint64_t> &Record, unsigned Code,
                          PlaceholderQueue &Placeholders, StringRef Blob,
                          unsigned &NextMetadataNo);
@@ -741,11 +744,12 @@ class MetadataLoader::MetadataLoaderImpl {
 public:
   MetadataLoaderImpl(BitstreamCursor &Stream, Module &TheModule,
                      BitcodeReaderValueList &ValueList,
-                     MetadataLoaderCallbacks Callbacks, bool IsImporting)
+                     MetadataLoaderCallbacks Callbacks, bool IsImporting,
+                     StringRef Strtab)
       : MetadataList(TheModule.getContext(), Stream.SizeInBytes()),
         ValueList(ValueList), Stream(Stream), Context(TheModule.getContext()),
         TheModule(TheModule), Callbacks(std::move(Callbacks)),
-        IsImporting(IsImporting) {}
+        IsImporting(IsImporting), Strtab(Strtab) {}
 
   Error parseMetadata(bool ModuleLevel);
 
@@ -2265,6 +2269,40 @@ Error MetadataLoader::MetadataLoaderImpl::parseOneMetadata(
     NextMetadataNo++;
     break;
   }
+  case bitc::METADATA_EXT_METADATA: {
+    if (Record.size() < 4)
+      return error("Incomplete ExtMetadata record");
+
+    IsDistinct = Record[0];
+    if (!Record[2] || Record[2] > Strtab.size() ||
+        Record[1] > Strtab.size() - Record[2])
+      return error("ExtMetadata has bad classname");
+
+    StringRef ClassName = Strtab.slice(Record[1], Record[1] + Record[2]);
+    std::unique_ptr<ExtMetadataDeserializer> D;
+    if (const auto *Class = Context.findExtMetadataClass(ClassName))
+      D = Class->makeDeserializer(Context, IsDistinct);
+    else
+      D = GenericExtMetadata::makeDeserializer(Context, ClassName, IsDistinct);
+
+    ArrayRef<uint64_t> Tail = ArrayRef(Record).slice(3);
+    if (Error Err = Callbacks.DecodeStructuredData(
+            Tail, [&](sdata::Symbol K, sdata::Value V) {
+              return D->parseField(K, V);
+            }))
+      return Err;
+
+    if (!Tail.empty())
+      return error("Unexpected tail in ExtMetadata record");
+
+    auto Result = D->finish();
+    if (Error Err = Result.takeError())
+      return Err;
+
+    MetadataList.assignValue(Result.get(), NextMetadataNo);
+    NextMetadataNo++;
+    break;
+  }
   }
   return Error::success();
 #undef GET_OR_DISTINCT
@@ -2480,9 +2518,11 @@ MetadataLoader::~MetadataLoader() = default;
 MetadataLoader::MetadataLoader(BitstreamCursor &Stream, Module &TheModule,
                                BitcodeReaderValueList &ValueList,
                                bool IsImporting,
-                               MetadataLoaderCallbacks Callbacks)
-    : Pimpl(std::make_unique<MetadataLoaderImpl>(
-          Stream, TheModule, ValueList, std::move(Callbacks), IsImporting)) {}
+                               MetadataLoaderCallbacks Callbacks,
+                               StringRef Strtab)
+    : Pimpl(std::make_unique<MetadataLoaderImpl>(Stream, TheModule, ValueList,
+                                                 std::move(Callbacks),
+                                                 IsImporting, Strtab)) {}
 
 Error MetadataLoader::parseMetadata(bool ModuleLevel) {
   return Pimpl->parseMetadata(ModuleLevel);

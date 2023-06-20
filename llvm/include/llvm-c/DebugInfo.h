@@ -180,6 +180,7 @@ enum {
   LLVMDIGenericSubrangeMetadataKind,
   LLVMDIArgListMetadataKind,
   LLVMDIAssignIDMetadataKind,
+  LLVMExtMetadataMetadataKind,
 };
 typedef unsigned LLVMMetadataKind;
 

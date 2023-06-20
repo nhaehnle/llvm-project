@@ -58,6 +58,7 @@ class AttributeSetNode;
 class BasicBlock;
 struct DiagnosticHandler;
 class ElementCount;
+class ExtMetadataClass;
 class Function;
 class GlobalObject;
 class GlobalValue;
@@ -1613,6 +1614,10 @@ public:
 
   SmallVector<const TargetExtTypeClass *> TargetExtTypeClasses;
   bool TargetExtTypeClassesFrozen = false;
+
+  SmallVector<const ExtMetadataClass *> ExtMetadataClassesById;
+  StringMap<const ExtMetadataClass *> ExtMetadataClassesByName;
+  bool ExtMetadataClassesFrozen = false;
 
   /// Flag to indicate if Value (other than GlobalValue) retains their name or
   /// not.

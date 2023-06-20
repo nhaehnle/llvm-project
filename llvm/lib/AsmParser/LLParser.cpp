@@ -28,6 +28,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalIFunc.h"
 #include "llvm/IR/GlobalObject.h"
@@ -4919,7 +4920,29 @@ bool LLParser::parseSpecializedMDNode(MDNode *&N, bool IsDistinct) {
     return parse##CLASS(N, IsDistinct);
 #include "llvm/IR/Metadata.def"
 
-  return tokError("expected metadata type");
+  SMLoc MDLoc = Lex.getLoc();
+  std::string ClassName = Lex.getStrVal();
+  Lex.Lex(); // eat !classname
+
+  std::unique_ptr<ExtMetadataDeserializer> D;
+  if (const auto *C = Context.findExtMetadataClass(ClassName))
+    D = C->makeDeserializer(Context, IsDistinct);
+  else
+    D = GenericExtMetadata::makeDeserializer(Context, ClassName, IsDistinct);
+
+  if (parseStructuredData(
+          [&](LocTy KeyLoc, sdata::Symbol K, LocTy ValueLoc, sdata::Value V) {
+            if (Error Err = D->parseField(K, V))
+              return error(KeyLoc, toString(std::move(Err)));
+            return false;
+          }))
+    return true;
+
+  auto Result = D->finish();
+  if (Error Err = Result.takeError())
+    return error(MDLoc, toString(std::move(Err)));
+  N = Result.get();
+  return false;
 }
 
 #define DECLARE_FIELD(NAME, TYPE, INIT) TYPE NAME INIT
@@ -5792,6 +5815,7 @@ bool LLParser::parseValueAsMetadata(Metadata *&MD, const Twine &TypeMsg,
 ///  ::= !{...}
 ///  ::= !"string"
 ///  ::= !DILocation(...)
+///  ::= !<identifier> { <structured data> }
 bool LLParser::parseMetadata(Metadata *&MD, PerFunctionState *PFS) {
   if (Lex.getKind() == lltok::MetadataVar) {
     MDNode *N;

@@ -971,6 +971,9 @@ void Verifier::visitMDNode(const MDNode &MD, AreDebugLocsAllowed AllowLocs) {
     llvm_unreachable("Invalid MDNode subclass");
   case Metadata::MDTupleKind:
     break;
+  case Metadata::ExtMetadataKind:
+    // TODO: Hook up the verifier
+    break;
 #define HANDLE_SPECIALIZED_MDNODE_LEAF(CLASS)                                  \
   case Metadata::CLASS##Kind:                                                  \
     visit##CLASS(cast<CLASS>(MD));                                             \

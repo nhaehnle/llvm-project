@@ -26,6 +26,7 @@ namespace llvm {
 
 class DiagnosticInfo;
 enum DiagnosticSeverity : char;
+class ExtMetadataClass;
 class Function;
 class Instruction;
 class LLVMContextImpl;
@@ -326,6 +327,12 @@ public:
 
   /// Find an extension type class.
   const TargetExtTypeClass *findTargetExtTypeClass(StringRef Name) const;
+
+  /// Register an extended metadata class.
+  void registerExtMetadataClass(const ExtMetadataClass *Class);
+
+  /// Find an extended metadata class.
+  const ExtMetadataClass *findExtMetadataClass(StringRef Name) const;
 
 private:
   // Module needs access to the add/removeModule methods.

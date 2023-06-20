@@ -5580,6 +5580,32 @@ the exception of debug metadata (named metadata with the name ``!llvm.dbg.*``).
 More information about specific metadata nodes recognized by the
 optimizers and code generator is found below.
 
+Extended Metadata
+-----------------
+
+Extended metadata is a container for :ref:`structured data <structured_data>`
+with an extended metadata class name.
+
+Like metadata nodes, extended metadata can either be uniqued or ``distinct``.
+Distinct nodes have an identity separate from their contents.
+
+For example:
+
+.. code-block:: llvm
+
+    !0 = !my.data { size: i32 12, writable: i1 true }
+    !1 = distinct !my.mutable.data { hash: i32 12345678 }
+
+Extended metadata can be an alternative to building metadata out of generic
+tuples with the following advantages:
+
+* Often more easily readable for humans
+* Structured data and therefore extended metadata can more easily be extended
+  by simply adding a field with a previously unused name
+* Code using extended metadata typically operates on an explicit,
+  per-metadata-class in-memory representations that are more efficient than
+  generic metadata nodes and easily admit convenient accessor methods
+
 .. _specialized-metadata:
 
 Specialized Metadata Nodes

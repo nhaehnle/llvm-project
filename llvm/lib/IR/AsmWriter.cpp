@@ -40,6 +40,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalIFunc.h"
@@ -1674,6 +1675,13 @@ static void writeMDTuple(raw_ostream &Out, const MDTuple *Node,
   }
 
   Out << "}";
+}
+
+static void writeExtMetadata(raw_ostream &Out, const ExtMetadata *Node,
+                             AsmWriterContext &WriterCtx) {
+  Out << '!' << Node->getClassName();
+  auto Fields = Node->serialize(false);
+  printStructuredData(Out, Fields, WriterCtx);
 }
 
 namespace {

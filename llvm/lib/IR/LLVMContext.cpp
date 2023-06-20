@@ -19,6 +19,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/LLVMRemarkStreamer.h"
 #include "llvm/IR/TargetExtType.h"
 #include "llvm/Remarks/RemarkStreamer.h"
@@ -425,4 +426,20 @@ LLVMContext::findTargetExtTypeClass(StringRef Name) const {
   }
 
   return nullptr;
+}
+
+void LLVMContext::registerExtMetadataClass(const ExtMetadataClass *Class) {
+  assert(!pImpl->ExtMetadataClassesFrozen);
+  assert(!pImpl->ExtMetadataClassesByName.count(Class->getName()));
+
+  pImpl->ExtMetadataClassesByName.try_emplace(Class->getName(), Class);
+  if (Class->getId() >= pImpl->ExtMetadataClassesById.size())
+    pImpl->ExtMetadataClassesById.resize(Class->getId());
+  pImpl->ExtMetadataClassesById[Class->getId() - 1] = Class;
+}
+
+const ExtMetadataClass *
+LLVMContext::findExtMetadataClass(StringRef Name) const {
+  pImpl->ExtMetadataClassesFrozen = true;
+  return pImpl->ExtMetadataClassesByName.lookup(Name);
 }
