@@ -186,6 +186,43 @@ public:
   SmallVector<std::pair<sdata::Symbol, sdata::Value>> serialize() const;
 };
 
+/// !llvm.range metadata
+///
+/// Represents a half-open range [lo, hi). Wrapping is allowed.
+class RangeMetadata : public ExtMetadata {
+  APInt Lo;
+  APInt Hi;
+
+public:
+  RangeMetadata(LLVMContext &Ctx, const APInt &Lo, const APInt &Hi);
+
+  static RangeMetadata *get(LLVMContext &Ctx, const APInt &Lo, const APInt &Hi);
+
+  static bool classof(const ExtMetadata *M) {
+    return M->getClassId() == getClass().getId();
+  }
+  static bool classof(const Metadata *MD) {
+    if (const auto *ExtMD = dyn_cast<ExtMetadata>(MD))
+      return classof(ExtMD);
+    return false;
+  }
+
+  const APInt &getLo() const { return Lo; }
+  const APInt &getHi() const { return Hi; }
+
+  static const ExtMetadataClass &getClass();
+
+private:
+  class Deserializer;
+
+  static RangeMetadata *getImpl(LLVMContext &Ctx, const APInt &Lo,
+                                const APInt &Hi);
+
+  static SmallVector<std::pair<sdata::Symbol, sdata::Value>>
+  serialize(const ExtMetadata *M, bool UseSchema);
+  static bool verifier(const ExtMetadata *M, llvm::raw_ostream &Errs);
+};
+
 } // namespace llvm
 
 #endif // LLVM_IR_EXTMETADATA_H

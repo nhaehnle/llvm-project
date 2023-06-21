@@ -13,6 +13,7 @@
 
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Metadata.h"
 using namespace llvm;
@@ -83,9 +84,7 @@ MDNode *MDBuilder::createFunctionSectionPrefix(StringRef Prefix) {
 
 MDNode *MDBuilder::createRange(const APInt &Lo, const APInt &Hi) {
   assert(Lo.getBitWidth() == Hi.getBitWidth() && "Mismatched bitwidths!");
-
-  Type *Ty = IntegerType::get(Context, Lo.getBitWidth());
-  return createRange(ConstantInt::get(Ty, Lo), ConstantInt::get(Ty, Hi));
+  return RangeMetadata::get(Context, Lo, Hi);
 }
 
 MDNode *MDBuilder::createRange(Constant *Lo, Constant *Hi) {
@@ -94,7 +93,8 @@ MDNode *MDBuilder::createRange(Constant *Lo, Constant *Hi) {
     return nullptr;
 
   // Return the range [Lo, Hi).
-  return MDNode::get(Context, {createConstant(Lo), createConstant(Hi)});
+  return createRange(cast<ConstantInt>(Lo)->getValue(),
+                     cast<ConstantInt>(Hi)->getValue());
 }
 
 MDNode *MDBuilder::createCallees(ArrayRef<Function *> Callees) {

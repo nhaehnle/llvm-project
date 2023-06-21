@@ -159,3 +159,119 @@ SmallVector<std::pair<sdata::Symbol, sdata::Value>>
 GenericExtMetadata::serialize() const {
   return Fields;
 }
+
+namespace {
+
+struct RangeMetadataSymbols {
+  sdata::RegisterSymbol Lo{"lo"};
+  sdata::RegisterSymbol Hi{"hi"};
+
+  static const RangeMetadataSymbols &get() {
+    static RangeMetadataSymbols S;
+    return S;
+  }
+};
+
+} // anonymous namespace
+
+RangeMetadata::RangeMetadata(LLVMContext &Ctx, const APInt &Lo, const APInt &Hi)
+    : ExtMetadata(Ctx, getClass().getId(), Metadata::Uniqued), Lo(Lo), Hi(Hi) {
+  assert(Lo.getBitWidth() == Hi.getBitWidth());
+}
+
+RangeMetadata *RangeMetadata::getImpl(LLVMContext &Ctx, const APInt &Lo,
+                                      const APInt &Hi) {
+  return new (0, Uniqued) RangeMetadata(Ctx, Lo, Hi);
+}
+
+RangeMetadata *RangeMetadata::get(LLVMContext &Ctx, const APInt &Lo,
+                                  const APInt &Hi) {
+  RangeMetadata *MD = getImpl(Ctx, Lo, Hi);
+  assert(verifier(MD, llvm::dbgs()));
+  return MD;
+}
+
+class RangeMetadata::Deserializer : public ExtMetadataDeserializer {
+  LLVMContext &Ctx;
+  bool IsDistinct;
+  APInt Lo;
+  APInt Hi;
+
+public:
+  Deserializer(LLVMContext &Ctx, bool IsDistinct)
+      : Ctx(Ctx), IsDistinct(IsDistinct) {}
+
+  Error parseField(sdata::Symbol K, sdata::Value V) override {
+    const auto &S = RangeMetadataSymbols::get();
+
+    if (K == S.Lo) {
+      if (!V.isAPInt())
+        return sdata::makeDeserializeError("'lo' must be an integer");
+      Lo = V.getAPInt();
+      return Error::success();
+    }
+
+    if (K == S.Hi) {
+      if (!V.isAPInt())
+        return sdata::makeDeserializeError("'hi' must be an integer");
+      Hi = V.getAPInt();
+      return Error::success();
+    }
+
+    return sdata::makeDeserializeError("expected 'lo' or 'hi'");
+  }
+
+  Expected<ExtMetadata *> finish() override {
+    if (IsDistinct)
+      return sdata::makeDeserializeError(
+          "!llvm.range metadata cannot be distinct");
+    if (!Lo.getBitWidth())
+      return sdata::makeDeserializeError("missing 'lo'");
+    if (!Hi.getBitWidth())
+      return sdata::makeDeserializeError("missing 'hi'");
+
+    auto *MD = RangeMetadata::getImpl(Ctx, Lo, Hi);
+
+    std::string Err;
+    raw_string_ostream ErrStream(Err);
+    if (!verifier(MD, ErrStream))
+      return sdata::makeDeserializeError(Err);
+
+    return MD;
+  }
+};
+
+const ExtMetadataClass &RangeMetadata::getClass() {
+  static const auto Class{[]() {
+    ExtMetadataClass C(
+        "llvm.range",
+        [](LLVMContext &Ctx, bool IsDistinct) {
+          return std::unique_ptr<ExtMetadataDeserializer>(
+              new Deserializer(Ctx, IsDistinct));
+        },
+        &RangeMetadata::serialize);
+    C.setVerifier(&RangeMetadata::verifier);
+    return C;
+  }()};
+  return Class;
+}
+
+SmallVector<std::pair<sdata::Symbol, sdata::Value>>
+RangeMetadata::serialize(const ExtMetadata *M, bool UseSchema) {
+  auto *R = cast<RangeMetadata>(M);
+  const auto &S = RangeMetadataSymbols::get();
+  SmallVector<std::pair<sdata::Symbol, sdata::Value>> Fields;
+  Fields.emplace_back(S.Lo, R->getLo());
+  Fields.emplace_back(S.Hi, R->getHi());
+  return Fields;
+}
+
+bool RangeMetadata::verifier(const ExtMetadata *M, llvm::raw_ostream &Errs) {
+  auto *R = cast<RangeMetadata>(M);
+  if (R->getLo().getBitWidth() != R->getHi().getBitWidth()) {
+    Errs << "range metadata bitwidth mismatch: " << R->getLo().getBitWidth()
+         << " (lo) vs. " << R->getHi().getBitWidth() << " (hi)\n";
+    return false;
+  }
+  return true;
+}

@@ -24,6 +24,7 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/ExtMetadata.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Intrinsics.h"
@@ -1839,6 +1840,10 @@ LLVM_DUMP_METHOD void ConstantRange::dump() const {
 #endif
 
 ConstantRange llvm::getConstantRangeFromMetadata(const MDNode &Ranges) {
+  if (auto *RMD = dyn_cast<RangeMetadata>(&Ranges)) {
+    return {RMD->getLo(), RMD->getHi()};
+  }
+
   const unsigned NumRanges = Ranges.getNumOperands() / 2;
   assert(NumRanges >= 1 && "Must have at least one range!");
   assert(Ranges.getNumOperands() % 2 == 0 && "Must be a sequence of pairs");

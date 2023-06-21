@@ -132,6 +132,8 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
             return true;
           });
   registerTargetExtTypeClass(&Aarch64SVCount);
+
+  registerExtMetadataClass(&RangeMetadata::getClass());
 }
 
 LLVMContext::~LLVMContext() { delete pImpl; }
