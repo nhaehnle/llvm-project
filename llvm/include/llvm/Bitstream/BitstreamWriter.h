@@ -428,6 +428,23 @@ private:
           for (unsigned e = Vals.size(); RecordIdx != e; ++RecordIdx)
             EmitAbbreviatedField(EltEnc, Vals[RecordIdx]);
         }
+      } else if (Op.getEncoding() == BitCodeAbbrevOp::ExtArray) {
+        // Extended array case.
+        unsigned NumFields = Op.getEncodingData() + 1;
+        assert(i + NumFields < e && "missing array field specifiers");
+
+        unsigned NumElements = Vals[RecordIdx++];
+        EmitVBR(NumElements, 6);
+
+        for (; NumElements; --NumElements) {
+          for (unsigned field = 0; field != NumFields; ++field, ++RecordIdx) {
+            assert(RecordIdx < Vals.size());
+            const BitCodeAbbrevOp &Enc = Abbv->getOperandInfo(i + field + 1);
+            EmitAbbreviatedField(Enc, Vals[RecordIdx]);
+          }
+        }
+
+        i += NumFields;
       } else if (Op.getEncoding() == BitCodeAbbrevOp::Blob) {
         // If this record has blob data, emit it, otherwise we must have record
         // entries to encode this way.
@@ -443,7 +460,7 @@ private:
         } else {
           emitBlob(Vals.slice(RecordIdx));
         }
-      } else {  // Single scalar field.
+      } else { // Single scalar field.
         assert(RecordIdx < Vals.size() && "Invalid abbrev/record");
         EmitAbbreviatedField(Op, Vals[RecordIdx]);
         ++RecordIdx;

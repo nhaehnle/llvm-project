@@ -159,6 +159,39 @@ public:
   }
 };
 
+/// Describes the "schema" of a field of structured data.
+///
+/// This is used to describe structures for bitcode abbreviation.
+class SchemaField {
+public:
+  enum class Type {
+    /// Fixed-width APInt (possibly a boolean). TypeData is the number of bits.
+    Int,
+
+    /// LLVM type
+    Type,
+  };
+
+private:
+  Symbol TheKey;
+  Type TheType;
+  unsigned TypeData;
+
+public:
+  SchemaField(Symbol K, Type T, unsigned TD = 0)
+      : TheKey(K), TheType(T), TypeData(TD) {
+    assert((T != Type::Int || TD != 0) &&
+           "integer schema types must have a bit width");
+  }
+
+  Symbol getKey() const { return TheKey; }
+  Type getType() const { return TheType; }
+  unsigned getTypeBitWidth() const {
+    assert(TheType == Type::Int);
+    return TypeData;
+  }
+};
+
 // Convenience function to create an Error object when an error is encountered
 // while deserializing structured data.
 Error makeDeserializeError(const Twine &Msg);

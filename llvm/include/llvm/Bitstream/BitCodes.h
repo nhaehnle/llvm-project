@@ -36,16 +36,16 @@ class BitCodeAbbrevOp {
   unsigned Enc   : 3;     // The encoding to use.
 public:
   enum Encoding {
-    Fixed = 1,  // A fixed width field, Val specifies number of bits.
-    VBR   = 2,  // A VBR field where Val specifies the width of each chunk.
-    Array = 3,  // A sequence of fields, next field species elt encoding.
-    Char6 = 4,  // A 6-bit fixed field which maps to [a-zA-Z0-9._].
-    Blob  = 5   // 32-bit aligned array of 8-bit characters.
+    Fixed = 1,    // A fixed width field, Val specifies number of bits.
+    VBR = 2,      // A VBR field where Val specifies the width of each chunk.
+    Array = 3,    // A sequence of fields, next field species elt encoding.
+    Char6 = 4,    // A 6-bit fixed field which maps to [a-zA-Z0-9._].
+    Blob = 5,     // 32-bit aligned array of 8-bit characters.
+    ExtArray = 6, // A VBR6-encoded element count followed by Val+1 fields
+                  // describing the element encoding
   };
 
-  static bool isValidEncoding(uint64_t E) {
-    return E >= 1 && E <= 5;
-  }
+  static bool isValidEncoding(uint64_t E) { return E >= 1 && E <= 6; }
 
   explicit BitCodeAbbrevOp(uint64_t V) :  Val(V), IsLiteral(true) {}
   explicit BitCodeAbbrevOp(Encoding E, uint64_t Data = 0)
@@ -69,6 +69,7 @@ public:
     switch (E) {
     case Fixed:
     case VBR:
+    case ExtArray:
       return true;
     case Array:
     case Char6:

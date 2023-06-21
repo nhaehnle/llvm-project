@@ -214,6 +214,8 @@ protected:
   void writePerModuleGlobalValueSummary();
 
   void encodeSymbol(SmallVectorImpl<uint64_t> &Vals, sdata::Symbol S);
+  void encodeSchemaAbbrev(BitCodeAbbrev &Abbrev,
+                          ArrayRef<sdata::SchemaField> Fields);
   void
   encodeStructuredData(SmallVectorImpl<uint64_t> &Vals,
                        ArrayRef<std::pair<sdata::Symbol, sdata::Value>> Fields);
@@ -952,6 +954,9 @@ void ModuleBitcodeWriter::writeTypeTable() {
   Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, NumBits));
   unsigned ArrayAbbrev = Stream.EmitAbbrev(std::move(Abbv));
 
+  // Abbrev for TYPE_CODE_TARGET_TYPE -- only emitted when used.
+  unsigned TargetAbbrev = 0;
+
   // Emit an entry count so the reader can reserve space.
   TypeVals.push_back(TypeList.size());
   Stream.EmitRecord(bitc::TYPE_CODE_NUMENTRY, TypeVals);
@@ -1068,8 +1073,20 @@ void ModuleBitcodeWriter::writeTypeTable() {
       for (unsigned IntParam : TET->int_params())
         TypeVals.push_back(IntParam);
 
-      auto Fields = serializeTargetTypeInfo(TET, /*UseSchema=*/false);
+      auto Fields = serializeTargetTypeInfo(TET, /*UseSchema=*/true);
       encodeStructuredData(TypeVals, Fields);
+
+      if (!TargetAbbrev) {
+        Abbv = std::make_shared<BitCodeAbbrev>();
+        Abbv->Add(BitCodeAbbrevOp(bitc::TYPE_CODE_TARGET_TYPE));
+        Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::ExtArray, 0)); // types
+        Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, NumBits));
+        Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::ExtArray, 0)); // ints
+        Abbv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));
+        encodeSchemaAbbrev(*Abbv, getTargetTypeInfoSchema());
+        TargetAbbrev = Stream.EmitAbbrev(std::move(Abbv));
+      }
+      AbbrevToUse = TargetAbbrev;
       break;
     }
     case Type::TypedPointerTyID:
@@ -3983,6 +4000,33 @@ void ModuleBitcodeWriterBase::encodeSymbol(SmallVectorImpl<uint64_t> &Vals,
   StringRef Str = S.getAsString();
   Vals.push_back(StrtabBuilder.add(Str));
   Vals.push_back(Str.size());
+}
+
+void ModuleBitcodeWriterBase::encodeSchemaAbbrev(
+    BitCodeAbbrev &Abbrev, ArrayRef<sdata::SchemaField> Fields) {
+  Abbrev.Add(BitCodeAbbrevOp(Fields.size()));
+  for (const auto &Field : Fields) {
+    SmallVector<uint64_t> Symbol;
+    encodeSymbol(Symbol, Field.getKey());
+    for (uint64_t x : Symbol)
+      Abbrev.Add(BitCodeAbbrevOp(x));
+
+    if (Field.getType() == sdata::SchemaField::Type::Int) {
+      unsigned NumBits = Field.getTypeBitWidth();
+      Abbrev.Add(BitCodeAbbrevOp(bitc::SDATA_INT_BASE + NumBits));
+      while (NumBits > 64) {
+        Abbrev.Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 64));
+        NumBits -= 64;
+      }
+      Abbrev.Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, NumBits));
+    } else if (Field.getType() == sdata::SchemaField::Type::Type) {
+      Abbrev.Add(BitCodeAbbrevOp(bitc::SDATA_TYPE));
+      Abbrev.Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed,
+                                 VE.computeBitsRequiredForTypeIndicies()));
+    } else {
+      llvm_unreachable("unimplemented schema field type");
+    }
+  }
 }
 
 void ModuleBitcodeWriterBase::encodeStructuredData(

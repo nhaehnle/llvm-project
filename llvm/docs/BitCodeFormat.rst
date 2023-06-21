@@ -358,6 +358,18 @@ The possible operand encodings are:
   in the mapped in file and poke directly at it.  A blob may only occur as the
   last operand of an abbreviation.
 
+* Extended Array (code 6): This field is an array of tuples. The operand's extra
+  data specifies is the number of tuple fields minus 1. The operand is followed
+  by operands describing each field of the tuple. Extended arrays can appear
+  anywhere in an abbreviation.
+
+  Nested extended arrays are currently not supported, but are a possible
+  extension.
+
+  When reading an extended array in an abbreviated record, the first integer is
+  a vbr6 that indicates the array length, followed by the encoded elements of
+  the array. Each element is a tightly packed encoding of the tuple fields.
+
 For example, target triples in LLVM modules are encoded as a record of the form
 ``[TRIPLE, 'a', 'b', 'c', 'd']``.  Consider if the bitstream emitted the
 following abbrev entry:

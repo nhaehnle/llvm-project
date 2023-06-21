@@ -864,6 +864,12 @@ struct TargetTypeInfoKeys {
   sdata::RegisterSymbol HasZeroInit{"hasZeroInit"};
   sdata::RegisterSymbol CanBeGlobal{"canBeGlobal"};
 
+  sdata::SchemaField Schema[3] = {
+      {Layout, sdata::SchemaField::Type::Type},
+      {CanBeGlobal, sdata::SchemaField::Type::Int, 1},
+      {HasZeroInit, sdata::SchemaField::Type::Int, 1},
+  };
+
   static const TargetTypeInfoKeys &get() {
     static const TargetTypeInfoKeys TTIK;
     return TTIK;
@@ -945,6 +951,11 @@ Expected<TargetExtType *> TargetTypeInfoDeserialize::finish() {
     return sdata::makeDeserializeError("target type has wrong properties");
 
   return T;
+}
+
+ArrayRef<sdata::SchemaField> llvm::getTargetTypeInfoSchema() {
+  const auto &TTIK = TargetTypeInfoKeys::get();
+  return TTIK.Schema;
 }
 
 SmallVector<std::pair<sdata::Symbol, sdata::Value>>

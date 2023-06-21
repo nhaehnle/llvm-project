@@ -100,9 +100,13 @@ public:
   static void registerSymbols();
 };
 
+/// Return the schema for target type info.
+ArrayRef<sdata::SchemaField> getTargetTypeInfoSchema();
+
 /// Serialize the target type info into structured data.
 ///
-/// If UseSchema is true, fields are generated according to a fixed schema.
+/// If UseSchema is true, fields are generated according to the schema returned
+/// by @ref getTargetTypeInfoSchema.
 SmallVector<std::pair<sdata::Symbol, sdata::Value>>
 serializeTargetTypeInfo(TargetExtType *Ty, bool UseSchema);
 

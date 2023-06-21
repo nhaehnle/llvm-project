@@ -75,6 +75,7 @@ static Expected<uint64_t> readAbbreviatedField(BitstreamCursor &Cursor,
   // Decode the value as we are commanded.
   switch (Op.getEncoding()) {
   case BitCodeAbbrevOp::Array:
+  case BitCodeAbbrevOp::ExtArray:
   case BitCodeAbbrevOp::Blob:
     llvm_unreachable("Should not reach here");
   case BitCodeAbbrevOp::Fixed:
@@ -123,6 +124,7 @@ Expected<unsigned> BitstreamCursor::skipRecord(unsigned AbbrevID) {
     Code = CodeOp.getLiteralValue();
   else {
     if (CodeOp.getEncoding() == BitCodeAbbrevOp::Array ||
+        CodeOp.getEncoding() == BitCodeAbbrevOp::ExtArray ||
         CodeOp.getEncoding() == BitCodeAbbrevOp::Blob)
       return llvm::createStringError(
           std::errc::illegal_byte_sequence,
@@ -139,6 +141,7 @@ Expected<unsigned> BitstreamCursor::skipRecord(unsigned AbbrevID) {
       continue;
 
     if (Op.getEncoding() != BitCodeAbbrevOp::Array &&
+        Op.getEncoding() != BitCodeAbbrevOp::ExtArray &&
         Op.getEncoding() != BitCodeAbbrevOp::Blob) {
       if (Expected<uint64_t> MaybeField = readAbbreviatedField(*this, Op))
         continue;
@@ -183,6 +186,38 @@ Expected<unsigned> BitstreamCursor::skipRecord(unsigned AbbrevID) {
           return std::move(Err);
         break;
       }
+      continue;
+    }
+
+    if (Op.getEncoding() == BitCodeAbbrevOp::ExtArray) {
+      // Extended array case.
+      unsigned NumFields = Op.getEncodingData() + 1;
+      if (i + NumFields >= e)
+        return error("Missing array element specifiers");
+
+      Expected<uint32_t> MaybeNumElts = ReadVBR(6);
+      if (!MaybeNumElts) {
+        return error(
+            ("Failed to read size: " + toString(MaybeNumElts.takeError()))
+                .c_str());
+      }
+      uint32_t NumElts = MaybeNumElts.get();
+      if (NumElts > std::numeric_limits<size_t>::max() / NumFields)
+        return error("Size overflow");
+
+      size_t NumVals = (size_t)NumElts * NumFields;
+      if (!isSizePlausible(NumVals))
+        return error("Size is not plausible");
+
+      for (; NumElts; --NumElts) {
+        for (unsigned field = 0; field != NumFields; ++field) {
+          const BitCodeAbbrevOp &Enc = Abbv->getOperandInfo(i + field + 1);
+          if (Error Err = readAbbreviatedField(*this, Enc).takeError())
+            return std::move(Err);
+        }
+      }
+
+      i += NumFields;
       continue;
     }
 
@@ -250,6 +285,7 @@ Expected<unsigned> BitstreamCursor::readRecord(unsigned AbbrevID,
     Code = CodeOp.getLiteralValue();
   else {
     if (CodeOp.getEncoding() == BitCodeAbbrevOp::Array ||
+        CodeOp.getEncoding() == BitCodeAbbrevOp::ExtArray ||
         CodeOp.getEncoding() == BitCodeAbbrevOp::Blob)
       return error("Abbreviation starts with an Array or a Blob");
     if (Expected<uint64_t> MaybeCode = readAbbreviatedField(*this, CodeOp))
@@ -266,6 +302,7 @@ Expected<unsigned> BitstreamCursor::readRecord(unsigned AbbrevID,
     }
 
     if (Op.getEncoding() != BitCodeAbbrevOp::Array &&
+        Op.getEncoding() != BitCodeAbbrevOp::ExtArray &&
         Op.getEncoding() != BitCodeAbbrevOp::Blob) {
       if (Expected<uint64_t> MaybeVal = readAbbreviatedField(*this, Op))
         Vals.push_back(MaybeVal.get());
@@ -321,6 +358,43 @@ Expected<unsigned> BitstreamCursor::readRecord(unsigned AbbrevID,
           else
             return MaybeVal.takeError();
       }
+      continue;
+    }
+
+    if (Op.getEncoding() == BitCodeAbbrevOp::ExtArray) {
+      // Extended array case.
+      unsigned NumFields = Op.getEncodingData() + 1;
+      if (i + NumFields >= e)
+        return error("Missing array element specifiers");
+
+      Expected<uint32_t> MaybeNumElts = ReadVBR(6);
+      if (!MaybeNumElts) {
+        return error(
+            ("Failed to read size: " + toString(MaybeNumElts.takeError()))
+                .c_str());
+      }
+      uint32_t NumElts = MaybeNumElts.get();
+      if (NumElts > std::numeric_limits<size_t>::max() / NumFields)
+        return error("Size overflow");
+
+      size_t NumVals = (size_t)NumElts * NumFields;
+      if (!isSizePlausible(NumVals))
+        return error("Size is not plausible");
+      Vals.reserve(Vals.size() + NumVals);
+
+      Vals.push_back(NumElts);
+
+      for (; NumElts; --NumElts) {
+        for (unsigned field = 0; field != NumFields; ++field) {
+          const BitCodeAbbrevOp &Enc = Abbv->getOperandInfo(i + field + 1);
+          if (Expected<uint64_t> MaybeVal = readAbbreviatedField(*this, Enc))
+            Vals.push_back(MaybeVal.get());
+          else
+            return MaybeVal.takeError();
+        }
+      }
+
+      i += NumFields;
       continue;
     }
 
