@@ -1359,6 +1359,12 @@ Error BitcodeReader::decodeStructuredData(
     } else if (Tail[0] == bitc::SDATA_TYPE) {
       V = getTypeByID(Tail[1]);
       Tail = Tail.drop_front(2);
+    } else if (Tail[0] == bitc::SDATA_SYMBOL) {
+      if (Tail.size() < 3)
+        return error("incomplete sdata symbol value");
+      V = SdataSymbols.getSymbol(Context,
+                                 Strtab.slice(Tail[1], Tail[1] + Tail[2]));
+      Tail = Tail.drop_front(3);
     } else {
       return error("bad sdata value type: " + Twine(Tail[0]));
     }

@@ -735,6 +735,7 @@ enum SymtabCodes {
 
 enum StructuredDataCodes {
   SDATA_TYPE = 1,
+  SDATA_SYMBOL = 2,
   SDATA_INT_BASE = 15, // add the bit size
 };
 

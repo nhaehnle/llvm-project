@@ -4023,6 +4023,10 @@ void ModuleBitcodeWriterBase::encodeSchemaAbbrev(
       Abbrev.Add(BitCodeAbbrevOp(bitc::SDATA_TYPE));
       Abbrev.Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed,
                                  VE.computeBitsRequiredForTypeIndicies()));
+    } else if (Field.getType() == sdata::SchemaField::Type::Symbol) {
+      Abbrev.Add(BitCodeAbbrevOp(bitc::SDATA_SYMBOL));
+      Abbrev.Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));
+      Abbrev.Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6));
     } else {
       llvm_unreachable("unimplemented schema field type");
     }
@@ -4047,6 +4051,10 @@ void ModuleBitcodeWriterBase::encodeStructuredData(
       Type *T = Value.getType();
       Vals.push_back(bitc::SDATA_TYPE);
       Vals.push_back(VE.getTypeID(T));
+    } else if (Value.isSymbol()) {
+      sdata::Symbol S = Value.getSymbol();
+      Vals.push_back(bitc::SDATA_SYMBOL);
+      encodeSymbol(Vals, S);
     } else {
       llvm_unreachable("sdata value type not implemented");
     }

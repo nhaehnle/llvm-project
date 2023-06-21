@@ -115,16 +115,21 @@ public:
 /// A value of structured data.
 class Value {
 private:
-  using Storage = std::variant<std::monostate, APInt, Type *>;
+  using Storage = std::variant<std::monostate, APInt, Type *, Symbol>;
 
   Storage S;
 
 public:
   Value() = default;
+  explicit Value(Symbol S) : S(S) {}
   explicit Value(Type *T) : S(T) {}
   explicit Value(bool B) : S(APInt(1, B ? 1 : 0)) {}
   explicit Value(APInt I) : S(I) {}
 
+  Value &operator=(Symbol TheSymbol) {
+    S = TheSymbol;
+    return *this;
+  }
   Value &operator=(Type *T) {
     assert(T);
     S = T;
@@ -144,6 +149,7 @@ public:
     return isAPInt() && std::get<APInt>(S).getBitWidth() == 1;
   }
   bool isType() const { return std::holds_alternative<Type *>(S); }
+  bool isSymbol() const { return std::holds_alternative<Symbol>(S); }
 
   const APInt &getAPInt() const {
     assert(isAPInt());
@@ -156,6 +162,10 @@ public:
   Type *getType() const {
     assert(isType());
     return std::get<Type *>(S);
+  }
+  Symbol getSymbol() const {
+    assert(isSymbol());
+    return std::get<Symbol>(S);
   }
 };
 
@@ -170,6 +180,9 @@ public:
 
     /// LLVM type
     Type,
+
+    /// Symbol
+    Symbol,
   };
 
 private:

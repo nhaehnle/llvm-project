@@ -579,12 +579,16 @@ The following types discriminators are defined:
 
 * TYPE (1) --- encoded as a single 64-bit integer
 
+* SYMBOL (2) --- encoded as a pair of 64-bit integers, the first one being an
+  offset into the IR module's string table, and the second being the length of
+  the symbol string
+
 * INT (15+n) --- an n-bit integer, encoded as a little-endian sequence of
   64-bit words
 
 The encoding of the integer type discriminator is chosen such that:
 
-* Encoding values 2 .. 15 are available for future extension
+* Encoding values 3 .. 15 are available for future extension
 * Type discriminators up to `i16` are encoded in unabbreviated records as a
   single vbr6 chunk
 
