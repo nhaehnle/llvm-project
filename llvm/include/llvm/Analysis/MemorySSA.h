@@ -222,8 +222,8 @@ protected:
   inline unsigned getID() const;
 
   MemoryAccess(LLVMContext &C, unsigned Vty, DeleteValueTy DeleteValue,
-               BasicBlock *BB, unsigned NumOperands)
-      : DerivedUser(Type::getVoidTy(C), Vty, nullptr, NumOperands, DeleteValue),
+               BasicBlock *BB)
+      : DerivedUser(Type::getVoidTy(C), Vty, DeleteValue),
         Block(BB) {}
 
   // Use deleteValue() to delete a generic MemoryAccess.
@@ -283,9 +283,8 @@ protected:
   friend class MemorySSAUpdater;
 
   MemoryUseOrDef(LLVMContext &C, MemoryAccess *DMA, unsigned Vty,
-                 DeleteValueTy DeleteValue, Instruction *MI, BasicBlock *BB,
-                 unsigned NumOperands)
-      : MemoryAccess(C, Vty, DeleteValue, BB, NumOperands),
+                 DeleteValueTy DeleteValue, Instruction *MI, BasicBlock *BB)
+      : MemoryAccess(C, Vty, DeleteValue, BB),
         MemoryInstruction(MI) {
     setDefiningAccess(DMA);
   }
@@ -315,8 +314,7 @@ public:
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(MemoryAccess);
 
   MemoryUse(LLVMContext &C, MemoryAccess *DMA, Instruction *MI, BasicBlock *BB)
-      : MemoryUseOrDef(C, DMA, MemoryUseVal, deleteMe, MI, BB,
-                       /*NumOperands=*/1) {}
+      : MemoryUseOrDef(C, DMA, MemoryUseVal, deleteMe, MI, BB) {}
 
   // allocate space for exactly one operand
   void *operator new(size_t S) { return User::operator new(S, 1); }
@@ -378,8 +376,7 @@ public:
 
   MemoryDef(LLVMContext &C, MemoryAccess *DMA, Instruction *MI, BasicBlock *BB,
             unsigned Ver)
-      : MemoryUseOrDef(C, DMA, MemoryDefVal, deleteMe, MI, BB,
-                       /*NumOperands=*/2),
+      : MemoryUseOrDef(C, DMA, MemoryDefVal, deleteMe, MI, BB),
         ID(Ver) {}
 
   // allocate space for exactly two operands
@@ -488,7 +485,7 @@ public:
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(MemoryAccess);
 
   MemoryPhi(LLVMContext &C, BasicBlock *BB, unsigned Ver, unsigned NumPreds = 0)
-      : MemoryAccess(C, MemoryPhiVal, deleteMe, BB, 0), ID(Ver),
+      : MemoryAccess(C, MemoryPhiVal, deleteMe, BB), ID(Ver),
         ReservedSpace(NumPreds) {
     allocHungoffUses(ReservedSpace);
   }

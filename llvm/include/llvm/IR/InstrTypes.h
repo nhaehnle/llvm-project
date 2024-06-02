@@ -57,16 +57,16 @@ typedef unsigned ID;
 class UnaryInstruction : public Instruction {
 protected:
   UnaryInstruction(Type *Ty, unsigned iType, Value *V, BasicBlock::iterator IB)
-      : Instruction(Ty, iType, &Op<0>(), 1, IB) {
+      : Instruction(Ty, iType, IB) {
     Op<0>() = V;
   }
   UnaryInstruction(Type *Ty, unsigned iType, Value *V,
                    Instruction *IB = nullptr)
-    : Instruction(Ty, iType, &Op<0>(), 1, IB) {
+    : Instruction(Ty, iType, IB) {
     Op<0>() = V;
   }
   UnaryInstruction(Type *Ty, unsigned iType, Value *V, BasicBlock *IAE)
-    : Instruction(Ty, iType, &Op<0>(), 1, IAE) {
+    : Instruction(Ty, iType, IAE) {
     Op<0>() = V;
   }
 

@@ -1019,12 +1019,9 @@ protected:
     setValueSubclassData(Storage);
   }
 
-  Instruction(Type *Ty, unsigned iType, Use *Ops, unsigned NumOps,
-              InstListType::iterator InsertBefore);
-  Instruction(Type *Ty, unsigned iType, Use *Ops, unsigned NumOps,
-              Instruction *InsertBefore = nullptr);
-  Instruction(Type *Ty, unsigned iType, Use *Ops, unsigned NumOps,
-              BasicBlock *InsertAtEnd);
+  Instruction(Type *Ty, unsigned iType, InstListType::iterator InsertBefore);
+  Instruction(Type *Ty, unsigned iType, Instruction *InsertBefore = nullptr);
+  Instruction(Type *Ty, unsigned iType, BasicBlock *InsertAtEnd);
 
 private:
   /// Create a copy of this instruction.

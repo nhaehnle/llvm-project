@@ -25,9 +25,9 @@
 #include "llvm/IR/Type.h"
 using namespace llvm;
 
-Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
+Instruction::Instruction(Type *ty, unsigned it,
                          InstListType::iterator InsertBefore)
-    : User(ty, Value::InstructionVal + it, Ops, NumOps), Parent(nullptr) {
+    : User(ty, Value::InstructionVal + it), Parent(nullptr) {
 
   // When called with an iterator, there must be a block to insert into.
   BasicBlock *BB = InsertBefore->getParent();
@@ -35,9 +35,8 @@ Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
   insertInto(BB, InsertBefore);
 }
 
-Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
-                         Instruction *InsertBefore)
-  : User(ty, Value::InstructionVal + it, Ops, NumOps), Parent(nullptr) {
+Instruction::Instruction(Type *ty, unsigned it, Instruction *InsertBefore)
+    : User(ty, Value::InstructionVal + it), Parent(nullptr) {
 
   // If requested, insert this instruction into a basic block...
   if (InsertBefore) {
@@ -47,9 +46,8 @@ Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
   }
 }
 
-Instruction::Instruction(Type *ty, unsigned it, Use *Ops, unsigned NumOps,
-                         BasicBlock *InsertAtEnd)
-    : User(ty, Value::InstructionVal + it, Ops, NumOps), Parent(nullptr) {
+Instruction::Instruction(Type *ty, unsigned it, BasicBlock *InsertAtEnd)
+    : User(ty, Value::InstructionVal + it), Parent(nullptr) {
 
   // If requested, append this instruction into the basic block.
   if (InsertAtEnd)

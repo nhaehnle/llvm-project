@@ -435,8 +435,7 @@ static unsigned computeAddrSpace(unsigned AddrSpace, Module *M) {
 
 Function::Function(FunctionType *Ty, LinkageTypes Linkage, unsigned AddrSpace,
                    const Twine &name, Module *ParentModule)
-    : GlobalObject(Ty, Value::FunctionVal,
-                   OperandTraits<Function>::op_begin(this), 0, Linkage, name,
+    : GlobalObject(Ty, Value::FunctionVal, Linkage, name,
                    computeAddrSpace(AddrSpace, ParentModule)),
       NumArgs(Ty->getNumParams()), IsNewDbgInfoFormat(false) {
   assert(FunctionType::isValidReturnType(getReturnType()) &&

@@ -70,15 +70,7 @@ protected:
   /// This is used for subclasses which have a fixed number of operands.
   void *operator new(size_t Size, unsigned Us, unsigned DescBytes);
 
-  User(Type *ty, unsigned vty, Use *, unsigned NumOps)
-      : Value(ty, vty) {
-    assert(NumOps < (1u << NumUserOperandsBits) && "Too many operands");
-    NumUserOperands = NumOps;
-    // If we have hung off uses, then the operand list should initially be
-    // null.
-    assert((!HasHungOffUses || !getOperandList()) &&
-           "Error in initializing hung off uses for User");
-  }
+  User(Type *ty, unsigned vty) : Value(ty, vty) {}
 
   /// Allocate the array of Uses, followed by a pointer
   /// (with bottom bit set) to the User.

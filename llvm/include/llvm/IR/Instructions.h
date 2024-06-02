@@ -1210,17 +1210,14 @@ public:
 };
 
 template <>
-struct OperandTraits<GetElementPtrInst> :
-  public VariadicOperandTraits<GetElementPtrInst, 1> {
-};
+struct OperandTraits<GetElementPtrInst>
+    : public VariadicOperandTraits<GetElementPtrInst, 1> {};
 
 GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      BasicBlock::iterator InsertBefore)
-    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr,
-                  OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertBefore),
+    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr, InsertBefore),
       SourceElementType(PointeeType),
       ResultElementType(getIndexedType(PointeeType, IdxList)) {
   init(Ptr, IdxList, NameStr);
@@ -1230,9 +1227,7 @@ GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      Instruction *InsertBefore)
-    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr,
-                  OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertBefore),
+    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr, InsertBefore),
       SourceElementType(PointeeType),
       ResultElementType(getIndexedType(PointeeType, IdxList)) {
   init(Ptr, IdxList, NameStr);
@@ -1242,9 +1237,7 @@ GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      BasicBlock *InsertAtEnd)
-    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr,
-                  OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertAtEnd),
+    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr, InsertAtEnd),
       SourceElementType(PointeeType),
       ResultElementType(getIndexedType(PointeeType, IdxList)) {
   init(Ptr, IdxList, NameStr);
@@ -1835,33 +1828,21 @@ private:
 CallInst::CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                    ArrayRef<OperandBundleDef> Bundles, const Twine &NameStr,
                    BasicBlock *InsertAtEnd)
-    : CallBase(Ty->getReturnType(), Instruction::Call,
-               OperandTraits<CallBase>::op_end(this) -
-                   (Args.size() + CountBundleInputs(Bundles) + 1),
-               unsigned(Args.size() + CountBundleInputs(Bundles) + 1),
-               InsertAtEnd) {
+    : CallBase(Ty->getReturnType(), Instruction::Call, InsertAtEnd) {
   init(Ty, Func, Args, Bundles, NameStr);
 }
 
 CallInst::CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                    ArrayRef<OperandBundleDef> Bundles, const Twine &NameStr,
                    BasicBlock::iterator InsertBefore)
-    : CallBase(Ty->getReturnType(), Instruction::Call,
-               OperandTraits<CallBase>::op_end(this) -
-                   (Args.size() + CountBundleInputs(Bundles) + 1),
-               unsigned(Args.size() + CountBundleInputs(Bundles) + 1),
-               InsertBefore) {
+    : CallBase(Ty->getReturnType(), Instruction::Call, InsertBefore) {
   init(Ty, Func, Args, Bundles, NameStr);
 }
 
 CallInst::CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                    ArrayRef<OperandBundleDef> Bundles, const Twine &NameStr,
                    Instruction *InsertBefore)
-    : CallBase(Ty->getReturnType(), Instruction::Call,
-               OperandTraits<CallBase>::op_end(this) -
-                   (Args.size() + CountBundleInputs(Bundles) + 1),
-               unsigned(Args.size() + CountBundleInputs(Bundles) + 1),
-               InsertBefore) {
+    : CallBase(Ty->getReturnType(), Instruction::Call, InsertBefore) {
   init(Ty, Func, Args, Bundles, NameStr);
 }
 
@@ -1874,24 +1855,21 @@ CallInst::CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
 class SelectInst : public Instruction {
   SelectInst(Value *C, Value *S1, Value *S2, const Twine &NameStr,
              BasicBlock::iterator InsertBefore)
-      : Instruction(S1->getType(), Instruction::Select, &Op<0>(), 3,
-                    InsertBefore) {
+      : Instruction(S1->getType(), Instruction::Select, InsertBefore) {
     init(C, S1, S2);
     setName(NameStr);
   }
 
   SelectInst(Value *C, Value *S1, Value *S2, const Twine &NameStr,
              Instruction *InsertBefore)
-    : Instruction(S1->getType(), Instruction::Select,
-                  &Op<0>(), 3, InsertBefore) {
+      : Instruction(S1->getType(), Instruction::Select, InsertBefore) {
     init(C, S1, S2);
     setName(NameStr);
   }
 
   SelectInst(Value *C, Value *S1, Value *S2, const Twine &NameStr,
              BasicBlock *InsertAtEnd)
-    : Instruction(S1->getType(), Instruction::Select,
-                  &Op<0>(), 3, InsertAtEnd) {
+      : Instruction(S1->getType(), Instruction::Select, InsertAtEnd) {
     init(C, S1, S2);
     setName(NameStr);
   }
@@ -2938,39 +2916,27 @@ public:
 };
 
 template <>
-struct OperandTraits<InsertValueInst> :
-  public FixedNumOperandTraits<InsertValueInst, 2> {
-};
+struct OperandTraits<InsertValueInst>
+    : public FixedNumOperandTraits<InsertValueInst, 2> {};
 
-InsertValueInst::InsertValueInst(Value *Agg,
-                                 Value *Val,
-                                 ArrayRef<unsigned> Idxs,
-                                 const Twine &NameStr,
+InsertValueInst::InsertValueInst(Value *Agg, Value *Val,
+                                 ArrayRef<unsigned> Idxs, const Twine &NameStr,
                                  BasicBlock::iterator InsertBefore)
-  : Instruction(Agg->getType(), InsertValue, OperandTraits<InsertValueInst>::op_begin(this),
-                2, InsertBefore) {
+    : Instruction(Agg->getType(), InsertValue, InsertBefore) {
   init(Agg, Val, Idxs, NameStr);
 }
 
-InsertValueInst::InsertValueInst(Value *Agg,
-                                 Value *Val,
-                                 ArrayRef<unsigned> Idxs,
-                                 const Twine &NameStr,
+InsertValueInst::InsertValueInst(Value *Agg, Value *Val,
+                                 ArrayRef<unsigned> Idxs, const Twine &NameStr,
                                  Instruction *InsertBefore)
-  : Instruction(Agg->getType(), InsertValue,
-                OperandTraits<InsertValueInst>::op_begin(this),
-                2, InsertBefore) {
+    : Instruction(Agg->getType(), InsertValue, InsertBefore) {
   init(Agg, Val, Idxs, NameStr);
 }
 
-InsertValueInst::InsertValueInst(Value *Agg,
-                                 Value *Val,
-                                 ArrayRef<unsigned> Idxs,
-                                 const Twine &NameStr,
+InsertValueInst::InsertValueInst(Value *Agg, Value *Val,
+                                 ArrayRef<unsigned> Idxs, const Twine &NameStr,
                                  BasicBlock *InsertAtEnd)
-  : Instruction(Agg->getType(), InsertValue,
-                OperandTraits<InsertValueInst>::op_begin(this),
-                2, InsertAtEnd) {
+    : Instruction(Agg->getType(), InsertValue, InsertAtEnd) {
   init(Agg, Val, Idxs, NameStr);
 }
 
@@ -2993,7 +2959,7 @@ class PHINode : public Instruction {
 
   explicit PHINode(Type *Ty, unsigned NumReservedValues, const Twine &NameStr,
                    BasicBlock::iterator InsertBefore)
-      : Instruction(Ty, Instruction::PHI, nullptr, 0, InsertBefore),
+      : Instruction(Ty, Instruction::PHI, InsertBefore),
         ReservedSpace(NumReservedValues) {
     assert(!Ty->isTokenTy() && "PHI nodes cannot have token type!");
     setName(NameStr);
@@ -3003,7 +2969,7 @@ class PHINode : public Instruction {
   explicit PHINode(Type *Ty, unsigned NumReservedValues,
                    const Twine &NameStr = "",
                    Instruction *InsertBefore = nullptr)
-    : Instruction(Ty, Instruction::PHI, nullptr, 0, InsertBefore),
+    : Instruction(Ty, Instruction::PHI, InsertBefore),
       ReservedSpace(NumReservedValues) {
     assert(!Ty->isTokenTy() && "PHI nodes cannot have token type!");
     setName(NameStr);
@@ -3012,7 +2978,7 @@ class PHINode : public Instruction {
 
   PHINode(Type *Ty, unsigned NumReservedValues, const Twine &NameStr,
           BasicBlock *InsertAtEnd)
-    : Instruction(Ty, Instruction::PHI, nullptr, 0, InsertAtEnd),
+    : Instruction(Ty, Instruction::PHI, InsertAtEnd),
       ReservedSpace(NumReservedValues) {
     assert(!Ty->isTokenTy() && "PHI nodes cannot have token type!");
     setName(NameStr);
@@ -4408,9 +4374,7 @@ InvokeInst::InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
                        BasicBlock *IfException, ArrayRef<Value *> Args,
                        ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                        const Twine &NameStr, BasicBlock::iterator InsertBefore)
-    : CallBase(Ty->getReturnType(), Instruction::Invoke,
-               OperandTraits<CallBase>::op_end(this) - NumOperands, NumOperands,
-               InsertBefore) {
+    : CallBase(Ty->getReturnType(), Instruction::Invoke, InsertBefore) {
   init(Ty, Func, IfNormal, IfException, Args, Bundles, NameStr);
 }
 
@@ -4418,9 +4382,7 @@ InvokeInst::InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
                        BasicBlock *IfException, ArrayRef<Value *> Args,
                        ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                        const Twine &NameStr, Instruction *InsertBefore)
-    : CallBase(Ty->getReturnType(), Instruction::Invoke,
-               OperandTraits<CallBase>::op_end(this) - NumOperands, NumOperands,
-               InsertBefore) {
+    : CallBase(Ty->getReturnType(), Instruction::Invoke, InsertBefore) {
   init(Ty, Func, IfNormal, IfException, Args, Bundles, NameStr);
 }
 
@@ -4428,9 +4390,7 @@ InvokeInst::InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
                        BasicBlock *IfException, ArrayRef<Value *> Args,
                        ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                        const Twine &NameStr, BasicBlock *InsertAtEnd)
-    : CallBase(Ty->getReturnType(), Instruction::Invoke,
-               OperandTraits<CallBase>::op_end(this) - NumOperands, NumOperands,
-               InsertAtEnd) {
+    : CallBase(Ty->getReturnType(), Instruction::Invoke, InsertAtEnd) {
   init(Ty, Func, IfNormal, IfException, Args, Bundles, NameStr);
 }
 
@@ -4703,9 +4663,7 @@ CallBrInst::CallBrInst(FunctionType *Ty, Value *Func, BasicBlock *DefaultDest,
                        ArrayRef<Value *> Args,
                        ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                        const Twine &NameStr, BasicBlock::iterator InsertBefore)
-    : CallBase(Ty->getReturnType(), Instruction::CallBr,
-               OperandTraits<CallBase>::op_end(this) - NumOperands, NumOperands,
-               InsertBefore) {
+    : CallBase(Ty->getReturnType(), Instruction::CallBr, InsertBefore) {
   init(Ty, Func, DefaultDest, IndirectDests, Args, Bundles, NameStr);
 }
 
@@ -4714,9 +4672,7 @@ CallBrInst::CallBrInst(FunctionType *Ty, Value *Func, BasicBlock *DefaultDest,
                        ArrayRef<Value *> Args,
                        ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                        const Twine &NameStr, Instruction *InsertBefore)
-    : CallBase(Ty->getReturnType(), Instruction::CallBr,
-               OperandTraits<CallBase>::op_end(this) - NumOperands, NumOperands,
-               InsertBefore) {
+    : CallBase(Ty->getReturnType(), Instruction::CallBr, InsertBefore) {
   init(Ty, Func, DefaultDest, IndirectDests, Args, Bundles, NameStr);
 }
 
@@ -4725,9 +4681,7 @@ CallBrInst::CallBrInst(FunctionType *Ty, Value *Func, BasicBlock *DefaultDest,
                        ArrayRef<Value *> Args,
                        ArrayRef<OperandBundleDef> Bundles, int NumOperands,
                        const Twine &NameStr, BasicBlock *InsertAtEnd)
-    : CallBase(Ty->getReturnType(), Instruction::CallBr,
-               OperandTraits<CallBase>::op_end(this) - NumOperands, NumOperands,
-               InsertAtEnd) {
+    : CallBase(Ty->getReturnType(), Instruction::CallBr, InsertAtEnd) {
   init(Ty, Func, DefaultDest, IndirectDests, Args, Bundles, NameStr);
 }
 

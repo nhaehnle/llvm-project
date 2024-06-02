@@ -58,7 +58,7 @@ class ConstantData : public Constant {
   }
 
 protected:
-  explicit ConstantData(Type *Ty, ValueTy VT) : Constant(Ty, VT, nullptr, 0) {}
+  explicit ConstantData(Type *Ty, ValueTy VT) : Constant(Ty, VT) {}
 
   void *operator new(size_t S) { return User::operator new(S, 0); }
 
@@ -1090,7 +1090,7 @@ class ConstantExpr : public Constant {
 
 protected:
   ConstantExpr(Type *ty, unsigned Opcode, Use *Ops, unsigned NumOps)
-      : Constant(ty, ConstantExprVal, Ops, NumOps) {
+      : Constant(ty, ConstantExprVal) {
     // Operation type (an Instruction opcode) is stored as the SubclassData.
     setValueSubclassData(Opcode);
   }

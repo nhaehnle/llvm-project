@@ -1271,8 +1271,7 @@ static Constant *getSequenceIfElementsMatch(Constant *C,
 
 ConstantAggregate::ConstantAggregate(Type *T, ValueTy VT,
                                      ArrayRef<Constant *> V)
-    : Constant(T, VT, OperandTraits<ConstantAggregate>::op_end(this) - V.size(),
-               V.size()) {
+    : Constant(T, VT) {
   llvm::copy(V, op_begin());
 
   // Check that types match, unless this is an opaque struct.
@@ -1858,7 +1857,7 @@ BlockAddress *BlockAddress::get(Function *F, BasicBlock *BB) {
 
 BlockAddress::BlockAddress(Function *F, BasicBlock *BB)
     : Constant(PointerType::get(F->getContext(), F->getAddressSpace()),
-               Value::BlockAddressVal, &Op<0>(), 2) {
+               Value::BlockAddressVal) {
   setOperand(0, F);
   setOperand(1, BB);
   BB->AdjustBlockAddressRefCount(1);
@@ -1930,7 +1929,7 @@ DSOLocalEquivalent *DSOLocalEquivalent::get(GlobalValue *GV) {
 }
 
 DSOLocalEquivalent::DSOLocalEquivalent(GlobalValue *GV)
-    : Constant(GV->getType(), Value::DSOLocalEquivalentVal, &Op<0>(), 1) {
+    : Constant(GV->getType(), Value::DSOLocalEquivalentVal) {
   setOperand(0, GV);
 }
 
@@ -1988,7 +1987,7 @@ NoCFIValue *NoCFIValue::get(GlobalValue *GV) {
 }
 
 NoCFIValue::NoCFIValue(GlobalValue *GV)
-    : Constant(GV->getType(), Value::NoCFIValueVal, &Op<0>(), 1) {
+    : Constant(GV->getType(), Value::NoCFIValueVal) {
   setOperand(0, GV);
 }
 
@@ -2035,7 +2034,7 @@ ConstantPtrAuth *ConstantPtrAuth::getWithSameSchema(Constant *Pointer) const {
 
 ConstantPtrAuth::ConstantPtrAuth(Constant *Ptr, ConstantInt *Key,
                                  ConstantInt *Disc, Constant *AddrDisc)
-    : Constant(Ptr->getType(), Value::ConstantPtrAuthVal, &Op<0>(), 4) {
+    : Constant(Ptr->getType(), Value::ConstantPtrAuthVal) {
   assert(Ptr->getType()->isPointerTy());
   assert(Key->getBitWidth() == 32);
   assert(Disc->getBitWidth() == 64);
