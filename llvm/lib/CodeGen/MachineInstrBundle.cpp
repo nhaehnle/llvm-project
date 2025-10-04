@@ -137,6 +137,7 @@ void llvm::finalizeBundle(MachineBasicBlock &MBB,
   SmallSet<Register, 8> KilledUseSet;
   SmallSet<Register, 8> UndefUseSet;
   SmallVector<std::pair<Register, Register>> TiedOperands;
+  SmallVector<MachineMemOperand *> MMOs;
   for (auto MII = FirstMI; MII != LastMI; ++MII) {
     // Debug instructions have no effects to track.
     if (MII->isDebugInstr())
@@ -201,6 +202,8 @@ void llvm::finalizeBundle(MachineBasicBlock &MBB,
       MIB.setMIFlag(MachineInstr::FrameSetup);
     if (MII->getFlag(MachineInstr::FrameDestroy))
       MIB.setMIFlag(MachineInstr::FrameDestroy);
+
+    MMOs.insert(MMOs.end(), MII->memoperands_begin(), MII->memoperands_end());
   }
 
   for (Register Reg : LocalDefs) {
@@ -226,6 +229,8 @@ void llvm::finalizeBundle(MachineBasicBlock &MBB,
     assert(UseIdx < ExternUses.size());
     MIB->tieOperands(DefIdx, LocalDefs.size() + UseIdx);
   }
+
+  MIB->setMemRefs(MF, MMOs);
 }
 
 /// finalizeBundle - Same functionality as the previous finalizeBundle except
