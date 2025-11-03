@@ -33,6 +33,8 @@ User Guide for AMDGPU Backend
 Introduction
 ============
 
+Dummy change
+
 The AMDGPU backend provides ISA code generation for AMD GPUs, starting with the
 R600 family up until the current GCN families. It lives in the
 ``llvm/lib/Target/AMDGPU`` directory.
